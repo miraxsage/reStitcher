@@ -1,0 +1,12 @@
+# Build artifacts
+reStitcher
+*.exe
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude Code
+.claude/
