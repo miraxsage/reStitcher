@@ -9,30 +9,146 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
-// mrDelegate is a custom delegate for displaying MR items with 2-line titles
-type mrDelegate struct {
-	styles list.DefaultItemStyles
+// mrItemColors defines colors for different MR item states
+type mrItemColors struct {
+	titleFg  lipgloss.Color
+	descFg   lipgloss.Color
+	borderFg lipgloss.Color
 }
 
-func newMRDelegate() mrDelegate {
-	styles := list.NewDefaultItemStyles()
-	styles.SelectedTitle = styles.SelectedTitle.
-		Foreground(lipgloss.Color("170")).
-		BorderLeftForeground(lipgloss.Color("170"))
-	styles.SelectedDesc = styles.SelectedDesc.
-		Foreground(lipgloss.Color("170")).
-		BorderLeftForeground(lipgloss.Color("170"))
+// MR item color schemes
+var (
+	draftSelectedColors = mrItemColors{
+		titleFg:  lipgloss.Color("244"),
+		descFg:   lipgloss.Color("244"),
+		borderFg: lipgloss.Color("244"),
+	}
+	draftNormalColors = mrItemColors{
+		titleFg: lipgloss.Color("242"),
+		descFg:  lipgloss.Color("242"),
+	}
+	checkedSelectedColors = mrItemColors{
+		titleFg:  lipgloss.Color("79"),
+		descFg:   lipgloss.Color("42"),
+		borderFg: lipgloss.Color("79"),
+	}
+	checkedNormalColors = mrItemColors{
+		titleFg: lipgloss.Color("42"),
+		descFg:  lipgloss.Color("35"),
+	}
+	normalSelectedColors = mrItemColors{
+		titleFg:  lipgloss.Color("170"),
+		descFg:   lipgloss.Color("139"),
+		borderFg: lipgloss.Color("170"),
+	}
+	normalNormalColors = mrItemColors{
+		titleFg: lipgloss.Color("252"),
+		descFg:  lipgloss.Color("245"),
+	}
+)
 
-	return mrDelegate{styles: styles}
+// getItemColors returns the appropriate colors based on item state
+func getItemColors(isSelected, isDraft, isChecked bool) mrItemColors {
+	if isDraft {
+		if isSelected {
+			return draftSelectedColors
+		}
+		return draftNormalColors
+	}
+	if isChecked {
+		if isSelected {
+			return checkedSelectedColors
+		}
+		return checkedNormalColors
+	}
+	if isSelected {
+		return normalSelectedColors
+	}
+	return normalNormalColors
+}
+
+// buildTitleStyle creates a title style based on colors and selection state
+func buildTitleStyle(colors mrItemColors, isSelected bool) lipgloss.Style {
+	if isSelected {
+		return lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, false, true).
+			BorderForeground(colors.borderFg).
+			Foreground(colors.titleFg).
+			Padding(0, 0, 0, 1)
+	}
+	return lipgloss.NewStyle().
+		Padding(0, 0, 0, 2).
+		Foreground(colors.titleFg)
+}
+
+// buildDescStyle creates a description style based on colors and selection state
+func buildDescStyle(colors mrItemColors, isSelected bool) lipgloss.Style {
+	if isSelected {
+		return lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, false, true).
+			BorderForeground(colors.borderFg).
+			Foreground(colors.descFg).
+			Padding(0, 0, 0, 1)
+	}
+	return lipgloss.NewStyle().
+		Padding(0, 0, 0, 2).
+		Foreground(colors.descFg)
+}
+
+// padLine pads a string to specified width for consistent borders
+func padLine(s string, w int) string {
+	sw := ansi.StringWidth(s)
+	if sw >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-sw)
+}
+
+// truncateWithEllipsis truncates text to fit within width, adding ellipsis if needed
+func truncateWithEllipsis(text string, maxWidth int) string {
+	if ansi.StringWidth(text) <= maxWidth {
+		return text
+	}
+	runes := []rune(text)
+	for ansi.StringWidth(string(runes)) > maxWidth-3 && len(runes) > 0 {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes) + "..."
+}
+
+// mrDelegate is a custom delegate for displaying MR items with 2-line titles
+type mrDelegate struct {
+	selectedMRs *map[int]bool
+}
+
+func newMRDelegate(selectedMRs *map[int]bool) mrDelegate {
+	return mrDelegate{selectedMRs: selectedMRs}
 }
 
 func (d mrDelegate) Height() int                             { return 3 }
 func (d mrDelegate) Spacing() int                            { return 1 }
 func (d mrDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+
+func (d mrDelegate) HeightForItem(item list.Item, m list.Model) int {
+	mr, ok := item.(mrListItem)
+	if !ok {
+		return 3
+	}
+
+	title := mr.Title()
+	width := m.Width() - 3
+
+	titleLines := wrapText(title, width)
+	if len(titleLines) >= 2 {
+		return 3
+	}
+	return 2
+}
 
 func (d mrDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	mr, ok := item.(mrListItem)
@@ -40,71 +156,57 @@ func (d mrDelegate) Render(w io.Writer, m list.Model, index int, item list.Item)
 		return
 	}
 
-	// Total available width from list
-	totalWidth := m.Width()
-	// Content width after accounting for left border/padding (3 chars: border + space + padding)
-	contentWidth := totalWidth - 3
+	contentWidth := m.Width() - 3
+	isSelected := index == m.Index()
+	isDraft := mr.MR().Draft
 
-	// Wrap title to 2 lines
-	title := mr.Title()
-	titleLines := wrapText(title, contentWidth)
+	isItemChecked := false
+	if !isDraft && d.selectedMRs != nil {
+		isItemChecked = (*d.selectedMRs)[mr.MR().IID]
+	}
+
+	// Get colors and build styles
+	colors := getItemColors(isSelected, isDraft, isItemChecked)
+	titleStyle := buildTitleStyle(colors, isSelected)
+	descStyle := buildDescStyle(colors, isSelected)
+
+	// Prepare marker
+	marker := ""
+	if !isDraft {
+		if isItemChecked {
+			marker = "[✓] "
+		} else {
+			marker = "[ ] "
+		}
+	}
+
+	// Prepare title lines
+	titleLines := wrapText(mr.Title(), contentWidth)
 	if len(titleLines) > 2 {
 		titleLines = titleLines[:2]
-		// Add ellipsis to second line if truncated
-		line2Width := ansi.StringWidth(titleLines[1])
-		if line2Width > 3 {
-			// Truncate and add ellipsis
-			runes := []rune(titleLines[1])
-			for ansi.StringWidth(string(runes)) > contentWidth-3 && len(runes) > 0 {
-				runes = runes[:len(runes)-1]
-			}
-			titleLines[1] = string(runes) + "..."
+		if len(titleLines[1]) > 0 {
+			titleLines[1] = truncateWithEllipsis(titleLines[1], contentWidth)
 		}
 	}
 
-	// Pad to always have 2 lines
-	for len(titleLines) < 2 {
-		titleLines = append(titleLines, "")
+	// Prepare description
+	desc := truncateWithEllipsis(mr.Description(), contentWidth)
+
+	// Build rendered lines
+	var lines []string
+
+	// First title line with marker
+	lines = append(lines, titleStyle.Render(padLine(marker+titleLines[0], contentWidth)))
+
+	// Second title line if exists
+	if len(titleLines) > 1 {
+		lines = append(lines, titleStyle.Render(padLine(titleLines[1], contentWidth)))
 	}
 
-	desc := mr.Description()
-	// Truncate description if too long
-	if ansi.StringWidth(desc) > contentWidth {
-		runes := []rune(desc)
-		for ansi.StringWidth(string(runes)) > contentWidth-3 && len(runes) > 0 {
-			runes = runes[:len(runes)-1]
-		}
-		desc = string(runes) + "..."
-	}
+	// Description line
+	lines = append(lines, descStyle.Render(padLine(desc, contentWidth)))
 
-	isSelected := index == m.Index()
-
-	// Pad each line to same width for consistent borders
-	padLine := func(s string, w int) string {
-		sw := ansi.StringWidth(s)
-		if sw >= w {
-			return s
-		}
-		return s + strings.Repeat(" ", w-sw)
-	}
-
-	line1 := padLine(titleLines[0], contentWidth)
-	line2 := padLine(titleLines[1], contentWidth)
-	line3 := padLine(desc, contentWidth)
-
-	if isSelected {
-		style := lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), false, false, false, true).
-			BorderForeground(lipgloss.Color("170")).
-			Foreground(lipgloss.Color("170")).
-			Padding(0, 0, 0, 1)
-		fmt.Fprint(w, style.Render(line1+"\n"+line2+"\n"+line3))
-	} else {
-		style := lipgloss.NewStyle().
-			Padding(0, 0, 0, 2).
-			Foreground(lipgloss.Color("252"))
-		fmt.Fprint(w, style.Render(line1+"\n"+line2+"\n"+line3))
-	}
+	fmt.Fprint(w, strings.Join(lines, "\n"))
 }
 
 // wrapText wraps text to specified width using display width (handles Unicode)
@@ -143,7 +245,8 @@ func wrapText(text string, width int) []string {
 // initListScreen initializes the main list screen
 func (m *model) initListScreen() {
 	// Create empty list initially
-	l := list.New([]list.Item{}, newMRDelegate(), 0, 0)
+	m.selectedMRs = make(map[int]bool)
+	l := list.New([]list.Item{}, newMRDelegate(&m.selectedMRs), 0, 0)
 	l.Title = "Open MRs"
 	l.SetShowHelp(false)
 	l.SetFilteringEnabled(true)
@@ -206,6 +309,20 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.list.Title = "Open MRs (loading...)"
 		return m, m.fetchMRs()
+	case " ":
+		// Toggle selection for currently focused MR (only for non-drafts)
+		selected := m.list.SelectedItem()
+		if selected != nil {
+			if mr, ok := selected.(mrListItem); ok && !mr.MR().Draft {
+				iid := mr.MR().IID
+				if m.selectedMRs[iid] {
+					delete(m.selectedMRs, iid)
+				} else {
+					m.selectedMRs[iid] = true
+				}
+			}
+		}
+		return m, nil
 	}
 
 	// Handle list updates
@@ -229,8 +346,17 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) renderMarkdown() string {
 	selected := m.list.SelectedItem()
 	if selected == nil {
-		return "No merge requests found.\n\nPress 'r' to refresh."
+		return "No merge requests found.\nPress 'r' to refresh."
 	}
+
+	style := styles.DarkStyleConfig
+	style.Strong.Color = stringPtr("42")
+	style.H1.Prefix = ""
+	style.H2.Prefix = ""
+	style.H3.Prefix = ""
+	style.H4.Prefix = ""
+	style.H5.Prefix = ""
+	style.H6.Prefix = ""
 
 	mr, ok := selected.(mrListItem)
 	if !ok {
@@ -239,35 +365,41 @@ func (m model) renderMarkdown() string {
 
 	details := mr.MR()
 
+	// Clean up author name (replace multiple spaces with single space)
+	authorName := strings.Join(strings.Fields(details.Author.Name), " ")
+
 	// Build info table row
-	discussionInfo := fmt.Sprintf("%d/%d", details.DiscussionsResolved, details.DiscussionsTotal)
+	discussionInfo := fmt.Sprintf(
+		"%d/%d",
+		details.DiscussionsResolved,
+		details.DiscussionsTotal)
 	if details.DiscussionsTotal == 0 {
-		discussionInfo = "-"
+		discussionInfo = "0/0"
 	}
 
 	changesCount := details.ChangesCount
 	if changesCount == "" {
-		changesCount = "-"
+		changesCount = "0"
 	}
 
 	// Build markdown content
-	markdown := fmt.Sprintf(`# %s
+	markdown := fmt.Sprintf(`# %s 
 
-**%s (@%s)** | %s -> %s
-
-| Overview | Commits | Changes |
-|:--------:|:-------:|:-------:|
-| %s | %d | %s |
-
----
-
-%s
-`,
+### %s (@%s)
+**%s** -> %s (at %s)
+ 
+ | Overview | Commits | Changes |
+ |:--------:|:-------:|:-------:|
+ | %s | %d | %s |
+ 
+ %s
+ `,
 		details.Title,
-		details.Author.Name,
+		authorName,
 		details.Author.Username,
 		details.SourceBranch,
 		details.TargetBranch,
+		details.CreatedAt.Format("2006 Jan 02 15:04"),
 		discussionInfo,
 		details.CommitsCount,
 		changesCount,
@@ -275,8 +407,9 @@ func (m model) renderMarkdown() string {
 	)
 
 	renderer, _ := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStyles(style),
 		glamour.WithWordWrap(m.viewport.Width),
+		glamour.WithPreservedNewLines(),
 	)
 
 	rendered, err := renderer.Render(markdown)
@@ -312,7 +445,7 @@ func (m model) viewList() string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	// Help footer (centered)
-	helpText := "/: commands • q/esc: quit • ↑/↓: navigate • scroll: pgup/pgdn • r: refresh"
+	helpText := "/: commands • q/esc: quit • ↑/↓: navigate • scroll: pgup/pgdn • r: refresh • space: toggle"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, main, help)

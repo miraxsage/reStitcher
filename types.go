@@ -1,5 +1,11 @@
 package main
 
+import (
+	"time"
+
+	"github.com/dustin/go-humanize"
+)
+
 // Screen represents the current screen state
 type screen int
 
@@ -36,23 +42,25 @@ func (i listItem) FilterValue() string { return i.title }
 
 // MergeRequest represents a GitLab merge request
 type MergeRequest struct {
-	ID           int    `json:"id"`
-	IID          int    `json:"iid"`
-	Title        string `json:"title"`
-	Description  string `json:"description"`
-	State        string `json:"state"`
-	SourceBranch string `json:"source_branch"`
-	TargetBranch string `json:"target_branch"`
+	ID           int       `json:"id"`
+	IID          int       `json:"iid"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	State        string    `json:"state"`
+	SourceBranch string    `json:"source_branch"`
+	TargetBranch string    `json:"target_branch"`
+	CreatedAt    time.Time `json:"created_at"`
+	Draft        bool      `json:"draft"`
 	Author       struct {
 		ID       int    `json:"id"`
 		Username string `json:"username"`
 		Name     string `json:"name"`
 	} `json:"author"`
-	WebURL                       string `json:"web_url"`
-	UserNotesCount               int    `json:"user_notes_count"`
-	ChangesCount                 string `json:"changes_count"`
-	HasConflicts                 bool   `json:"has_conflicts"`
-	BlockingDiscussionsResolved  bool   `json:"blocking_discussions_resolved"`
+	WebURL                      string `json:"web_url"`
+	UserNotesCount              int    `json:"user_notes_count"`
+	ChangesCount                string `json:"changes_count"`
+	HasConflicts                bool   `json:"has_conflicts"`
+	BlockingDiscussionsResolved bool   `json:"blocking_discussions_resolved"`
 }
 
 // MergeRequestDetails contains additional MR details
@@ -62,8 +70,8 @@ type MergeRequestDetails struct {
 		Additions int `json:"additions"`
 		Deletions int `json:"deletions"`
 	} `json:"diff_stats"`
-	CommitsCount       int `json:"-"`
-	DiscussionsTotal   int `json:"-"`
+	CommitsCount        int `json:"-"`
+	DiscussionsTotal    int `json:"-"`
 	DiscussionsResolved int `json:"-"`
 }
 
@@ -72,9 +80,12 @@ type mrListItem struct {
 	mr *MergeRequestDetails
 }
 
-func (i mrListItem) Title() string       { return i.mr.Title }
-func (i mrListItem) Description() string { return "@" + i.mr.Author.Username }
-func (i mrListItem) FilterValue() string { return i.mr.Title }
+func (i mrListItem) Title() string { return i.mr.Title }
+func (i mrListItem) Description() string {
+	created := humanize.Time(i.mr.CreatedAt)
+	return "@" + i.mr.Author.Username + " • " + created
+}
+func (i mrListItem) FilterValue() string      { return i.mr.Title }
 func (i mrListItem) MR() *MergeRequestDetails { return i.mr }
 
 // fetchMRsMsg is sent when MRs are fetched

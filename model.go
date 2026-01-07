@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -26,10 +27,11 @@ type model struct {
 	errorMsg string
 
 	// Main screen
-	list     list.Model
-	viewport viewport.Model
-	ready    bool
-	creds    *Credentials
+	list        list.Model
+	viewport    viewport.Model
+	ready       bool
+	creds       *Credentials
+	selectedMRs map[int]bool // Track selected MRs by IID
 
 	// Command menu
 	showCommandMenu  bool
@@ -203,6 +205,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errorModalMsg = msg.err.Error()
 			m.list.Title = "Open MRs"
 		} else {
+			// Sort MRs: non-drafts first (by date newest first), then drafts (by date newest first)
+			sort.Slice(msg.mrs, func(i, j int) bool {
+				// Both drafts or both non-drafts: sort by date (newest first)
+				if msg.mrs[i].Draft == msg.mrs[j].Draft {
+					return msg.mrs[i].CreatedAt.After(msg.mrs[j].CreatedAt)
+				}
+				// Drafts go last
+				return !msg.mrs[i].Draft && msg.mrs[j].Draft
+			})
+
 			items := make([]list.Item, len(msg.mrs))
 			for i, mr := range msg.mrs {
 				items[i] = mrListItem{mr: mr}

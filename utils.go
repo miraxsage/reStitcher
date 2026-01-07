@@ -95,3 +95,5 @@ func maxLineWidth(lines []string) int {
 	}
 	return max
 }
+
+func stringPtr(s string) *string { return &s }
