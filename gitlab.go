@@ -136,9 +136,23 @@ func (c *GitLabClient) GetMergeRequestDetails(mr MergeRequest) (*MergeRequestDet
 		return details, nil
 	}
 
+	encodedPath := strings.ReplaceAll(projectPath, "/", "%2F")
+
+	// Get single MR details (includes changes_count)
+	mrURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d",
+		c.baseURL, encodedPath, mr.IID)
+	mrData, err := c.fetchJSON(mrURL)
+	if err == nil {
+		if mrMap, ok := mrData.(map[string]interface{}); ok {
+			if changesCount, ok := mrMap["changes_count"].(string); ok {
+				details.ChangesCount = changesCount
+			}
+		}
+	}
+
 	// Get commits count
 	commitsURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/commits",
-		c.baseURL, strings.ReplaceAll(projectPath, "/", "%2F"), mr.IID)
+		c.baseURL, encodedPath, mr.IID)
 	commits, err := c.fetchJSON(commitsURL)
 	if err == nil {
 		if arr, ok := commits.([]interface{}); ok {
@@ -146,19 +160,19 @@ func (c *GitLabClient) GetMergeRequestDetails(mr MergeRequest) (*MergeRequestDet
 		}
 	}
 
-	// Get discussions stats
+	// Get discussions stats (only count resolvable discussions - actual review threads)
 	discussionsURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/discussions",
-		c.baseURL, strings.ReplaceAll(projectPath, "/", "%2F"), mr.IID)
+		c.baseURL, encodedPath, mr.IID)
 	discussions, err := c.fetchJSON(discussionsURL)
 	if err == nil {
 		if arr, ok := discussions.([]interface{}); ok {
 			for _, d := range arr {
 				if disc, ok := d.(map[string]interface{}); ok {
 					if notes, ok := disc["notes"].([]interface{}); ok && len(notes) > 0 {
-						details.DiscussionsTotal++
-						// Check if first note is resolvable and resolved
+						// Check if first note is resolvable (skip system notes)
 						if note, ok := notes[0].(map[string]interface{}); ok {
 							if resolvable, ok := note["resolvable"].(bool); ok && resolvable {
+								details.DiscussionsTotal++
 								if resolved, ok := note["resolved"].(bool); ok && resolved {
 									details.DiscussionsResolved++
 								}

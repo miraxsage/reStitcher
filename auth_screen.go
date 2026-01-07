@@ -8,6 +8,21 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// viewLoading renders the initial loading screen
+func (m model) viewLoading() string {
+	loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+	content := loadingStyle.Render(m.spinner.View() + " Loading...")
+
+	// Center vertically and horizontally
+	centered := lipgloss.NewStyle().
+		Width(m.width).
+		Height(m.height).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render(content)
+
+	return centered
+}
+
 // initAuthInputs creates the text inputs for the auth form
 func initAuthInputs() []textinput.Model {
 	inputs := make([]textinput.Model, 3)
@@ -65,9 +80,6 @@ func validateCredentialsCmd(creds Credentials) tea.Cmd {
 // updateAuth handles key events on the auth screen
 func (m model) updateAuth(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c":
-		return m, tea.Quit
-
 	case "tab", "down":
 		m.focusIndex++
 		if m.focusIndex > len(m.inputs) {
@@ -179,7 +191,7 @@ func (m model) viewAuth() string {
 
 		// Create loading content centered in exact same box size
 		// Account for formStyle padding (1, 2) and border
-		innerWidth := formBoxWidth - 2 - 4  // subtract border (2) and horizontal padding (2*2)
+		innerWidth := formBoxWidth - 2 - 4   // subtract border (2) and horizontal padding (2*2)
 		innerHeight := formBoxHeight - 2 - 2 // subtract border (2) and vertical padding (1*2)
 
 		loadingLine := lipgloss.NewStyle().
@@ -207,7 +219,7 @@ func (m model) viewAuth() string {
 		}
 
 		formContent = formStyle.
-			Width(formBoxWidth - 2). // subtract border width
+			Width(formBoxWidth - 2).   // subtract border width
 			Height(formBoxHeight - 2). // subtract border height
 			Render(b.String())
 	} else {
@@ -225,7 +237,7 @@ func (m model) viewAuth() string {
 	// Help footer (centered) - hide during loading
 	var help string
 	if !m.loading {
-		helpText := "tab/↑↓: navigate • enter: submit/next • ctrl+c: quit"
+		helpText := "tab/↓/↑: navigate • enter: submit/next • ctrl+c: quit"
 		help = helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 	}
 

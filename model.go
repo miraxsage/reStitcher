@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // model is the main application model
@@ -32,6 +33,8 @@ type model struct {
 	ready       bool
 	creds       *Credentials
 	selectedMRs map[int]bool // Track selected MRs by IID
+	loadingMRs  bool         // Loading modal for MRs
+	mrsLoaded   bool         // True after first MR load completes
 
 	// Command menu
 	showCommandMenu  bool
@@ -44,6 +47,8 @@ type model struct {
 	// Project selector
 	showProjectSelector  bool
 	projects             []Project
+	projectsLoaded       bool // True after projects are fetched
+	loadingProjects      bool // Loading state for project selector
 	projectSelectorIndex int
 	projectFilter        string
 	selectedProject      *Project
@@ -53,18 +58,20 @@ type model struct {
 func NewModel() model {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
 
 	return model{
-		screen:     screenAuth,
+		screen:     screenLoading,
 		inputs:     initAuthInputs(),
 		focusIndex: 0,
 		spinner:    s,
+		loading:    true, // Initial loading state
 	}
 }
 
 // Init initializes the model
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, checkStoredCredentials())
+	return tea.Batch(textinput.Blink, m.spinner.Tick, checkStoredCredentials())
 }
 
 // Update handles all messages
@@ -73,11 +80,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
 		// Handle error modal if open
 		if m.showErrorModal {
 			switch msg.String() {
-			case "ctrl+c":
-				return m, tea.Quit
 			case "enter", "esc":
 				m.showErrorModal = false
 				m.errorModalMsg = ""
@@ -120,6 +128,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case checkCredsMsg:
+		m.loading = false
 		if msg.creds != nil {
 			m.creds = msg.creds
 			m.screen = screenMain
@@ -134,14 +143,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					PathWithNamespace: config.SelectedProjectPath,
 					NameWithNamespace: config.SelectedProjectName,
 				}
+				// Project saved - fetch MRs directly, skip project loading
+				m.loadingMRs = true
+				return m, tea.Batch(m.spinner.Tick, m.fetchMRs())
 			}
 
-			// Fetch projects first, MRs will be fetched after project is confirmed
-			return m, m.fetchProjects()
+			// No project saved - show project selector and load projects
+			m.showProjectSelector = true
+			m.loadingProjects = true
+			return m, tea.Batch(m.spinner.Tick, m.fetchProjects())
 		}
+		// No credentials - show auth screen
+		m.screen = screenAuth
 
 	case spinner.TickMsg:
-		if m.loading {
+		if m.loading || m.loadingProjects || m.loadingMRs {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
@@ -174,36 +190,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					PathWithNamespace: config.SelectedProjectPath,
 					NameWithNamespace: config.SelectedProjectName,
 				}
+				// Project saved - fetch MRs directly, skip project loading
+				m.loadingMRs = true
+				return m, tea.Batch(m.spinner.Tick, m.fetchMRs())
 			}
 
-			// Fetch projects first, MRs will be fetched after project is confirmed
-			return m, m.fetchProjects()
+			// No project saved - show project selector and load projects
+			m.showProjectSelector = true
+			m.loadingProjects = true
+			return m, tea.Batch(m.spinner.Tick, m.fetchProjects())
 		}
 
 	case fetchProjectsMsg:
+		m.loadingProjects = false
+		m.projectsLoaded = true
 		if msg.err != nil {
 			m.showErrorModal = true
 			m.errorModalMsg = "Failed to fetch projects: " + msg.err.Error()
 		} else {
 			m.projects = msg.projects
-
-			// If no project selected, show project selector
-			if m.selectedProject == nil {
-				m.showProjectSelector = true
-				m.projectSelectorIndex = 0
-				m.projectFilter = ""
-			} else {
-				// Project already selected, fetch MRs
-				m.list.Title = m.selectedProject.Name + " (loading...)"
-				return m, m.fetchMRs()
-			}
+			m.projectSelectorIndex = 0
+			m.projectFilter = ""
 		}
 
 	case fetchMRsMsg:
+		m.loadingMRs = false
+		m.mrsLoaded = true
 		if msg.err != nil {
 			m.showErrorModal = true
 			m.errorModalMsg = msg.err.Error()
-			m.list.Title = "Open MRs"
 		} else {
 			// Sort MRs: non-drafts first (by date newest first), then drafts (by date newest first)
 			sort.Slice(msg.mrs, func(i, j int) bool {
@@ -221,12 +236,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.list.SetItems(items)
 
-			// Build title with project name if selected
-			if m.selectedProject != nil {
-				m.list.Title = fmt.Sprintf("%s (%d)", m.selectedProject.Name, len(msg.mrs))
-			} else {
-				m.list.Title = fmt.Sprintf("All MRs (%d)", len(msg.mrs))
-			}
+			// Build title: "Open MRs (count)"
+			m.list.Title = fmt.Sprintf("Open MRs (%d)", len(msg.mrs))
 
 			if m.ready {
 				m.viewport.SetContent(m.renderMarkdown())
@@ -250,12 +261,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	var view string
 	switch m.screen {
+	case screenLoading:
+		view = m.viewLoading()
 	case screenAuth:
 		view = m.viewAuth()
 	case screenError:
 		view = m.viewError()
 	case screenMain:
 		view = m.viewList()
+	}
+
+	// Overlay loading modal if loading MRs
+	if m.loadingMRs {
+		view = overlayLoadingModal(m.spinner.View(), view, m.width, m.height)
 	}
 
 	// Overlay command menu if open

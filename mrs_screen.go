@@ -252,6 +252,10 @@ func (m *model) initListScreen() {
 	l.SetFilteringEnabled(true)
 	l.SetShowStatusBar(false)
 
+	// Disable default quit keybindings (q, esc)
+	l.KeyMap.Quit.SetEnabled(false)
+	l.KeyMap.ForceQuit.SetEnabled(false)
+
 	m.list = l
 	m.ready = false
 }
@@ -304,11 +308,22 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg.String() {
-	case "ctrl+c", "q", "esc":
-		return m, tea.Quit
+	case "q", "esc":
+		// Ignore q and esc - only ctrl+c quits
+		return m, nil
+	case "o":
+		// Open selected MR in browser
+		selected := m.list.SelectedItem()
+		if selected != nil {
+			if mr, ok := selected.(mrListItem); ok {
+				return m, openInBrowser(mr.MR().WebURL)
+			}
+		}
+		return m, nil
 	case "r":
-		m.list.Title = "Open MRs (loading...)"
-		return m, m.fetchMRs()
+		// Refresh MRs with loading modal
+		m.loadingMRs = true
+		return m, tea.Batch(m.spinner.Tick, m.fetchMRs())
 	case " ":
 		// Toggle selection for currently focused MR (only for non-drafts)
 		selected := m.list.SelectedItem()
@@ -344,6 +359,11 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // renderMarkdown renders the markdown content for the selected MR
 func (m model) renderMarkdown() string {
+	// Show empty content before first load
+	if !m.mrsLoaded {
+		return ""
+	}
+
 	selected := m.list.SelectedItem()
 	if selected == nil {
 		return "No merge requests found.\nPress 'r' to refresh."
@@ -423,29 +443,40 @@ func (m model) renderMarkdown() string {
 // viewList renders the main list screen
 func (m model) viewList() string {
 	if !m.ready {
-		return "Loading..."
+		return ""
 	}
 
 	sidebarWidth := m.width / 3
 	contentWidth := m.width - sidebarWidth - 4
 
+	var sidebarContent, contentContent string
+
+	// Before first MR load, show empty areas
+	if !m.mrsLoaded {
+		sidebarContent = ""
+		contentContent = ""
+	} else {
+		sidebarContent = m.list.View()
+		contentContent = m.viewport.View()
+	}
+
 	// Render sidebar
 	sidebar := sidebarStyle.
 		Width(sidebarWidth).
 		Height(m.height - 4).
-		Render(m.list.View())
+		Render(sidebarContent)
 
 	// Render content
 	content := contentStyle.
 		Width(contentWidth).
 		Height(m.height - 4).
-		Render(m.viewport.View())
+		Render(contentContent)
 
 	// Combine sidebar and content
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	// Help footer (centered)
-	helpText := "/: commands • q/esc: quit • ↑/↓: navigate • scroll: pgup/pgdn • r: refresh • space: toggle"
+	helpText := "↓/↑/j/k: nav • space: choose • o: open • r: reload • /: commands • Ctrl+c: quit"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, main, help)

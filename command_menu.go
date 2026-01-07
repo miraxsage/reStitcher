@@ -40,9 +40,6 @@ func (m model) updateCommandMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		return m.executeCommand(commands[m.commandMenuIndex].name)
-
-	case "ctrl+c":
-		return m, tea.Quit
 	}
 
 	return m, nil
@@ -56,6 +53,12 @@ func (m model) executeCommand(name string) (tea.Model, tea.Cmd) {
 		m.showProjectSelector = true
 		m.projectSelectorIndex = 0
 		m.projectFilter = ""
+
+		// Load projects if not already loaded
+		if !m.projectsLoaded {
+			m.loadingProjects = true
+			return m, tea.Batch(m.spinner.Tick, m.fetchProjects())
+		}
 		return m, nil
 
 	case "logout":
@@ -74,6 +77,8 @@ func (m model) executeCommand(name string) (tea.Model, tea.Cmd) {
 		m.ready = false
 		m.selectedProject = nil
 		m.projects = nil
+		m.projectsLoaded = false
+		m.mrsLoaded = false
 
 		return m, nil
 	}
@@ -105,7 +110,7 @@ func (m model) overlayCommandMenu(background string) string {
 
 	// Help footer
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("↑/↓: navigate • enter: select • q/esc: close"))
+	b.WriteString(helpStyle.Render("↓/↑/j/k: navigate • enter: select • q/esc: close"))
 
 	menuContent := commandMenuStyle.Render(b.String())
 

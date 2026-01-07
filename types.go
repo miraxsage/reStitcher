@@ -10,7 +10,8 @@ import (
 type screen int
 
 const (
-	screenAuth screen = iota
+	screenLoading screen = iota
+	screenAuth
 	screenError
 	screenMain
 )

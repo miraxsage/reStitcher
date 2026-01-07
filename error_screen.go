@@ -10,8 +10,6 @@ import (
 // updateError handles key events on the error screen
 func (m model) updateError(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c":
-		return m, tea.Quit
 	case "enter":
 		m.screen = screenAuth
 		m.errorMsg = ""

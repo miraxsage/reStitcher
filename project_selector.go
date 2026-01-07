@@ -34,8 +34,13 @@ var (
 
 // updateProjectSelector handles key events for the project selector
 func (m model) updateProjectSelector(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Don't allow input while loading projects
+	if m.loadingProjects {
+		return m, nil
+	}
+
 	switch msg.String() {
-	case "esc":
+	case "esc", "ctrl+q":
 		// Only allow closing if a project is already selected
 		if m.selectedProject != nil {
 			m.showProjectSelector = false
@@ -43,13 +48,13 @@ func (m model) updateProjectSelector(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "up", "k":
+	case "up", "ctrl+p":
 		if m.projectSelectorIndex > 0 {
 			m.projectSelectorIndex--
 		}
 		return m, nil
 
-	case "down", "j":
+	case "down", "ctrl+n":
 		filtered := m.getFilteredProjects()
 		if m.projectSelectorIndex < len(filtered)-1 {
 			m.projectSelectorIndex++
@@ -67,9 +72,9 @@ func (m model) updateProjectSelector(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Save to config
 			SaveSelectedProject(&selected)
 
-			// Refresh MRs for the new project
-			m.list.Title = "Open MRs (loading...)"
-			return m, m.fetchMRs()
+			// Refresh MRs for the new project with loading modal
+			m.loadingMRs = true
+			return m, tea.Batch(m.spinner.Tick, m.fetchMRs())
 		}
 		return m, nil
 
@@ -79,9 +84,6 @@ func (m model) updateProjectSelector(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.projectSelectorIndex = 0
 		}
 		return m, nil
-
-	case "ctrl+c":
-		return m, tea.Quit
 
 	default:
 		// Add character to filter if it's printable
@@ -125,75 +127,82 @@ func (m model) overlayProjectSelector(background string) string {
 	}
 	b.WriteString("\n")
 
-	// Show filter input
-	filterDisplay := m.projectFilter
-	if filterDisplay == "" {
-		filterDisplay = "type to filter..."
-	}
-	b.WriteString(projectFilterStyle.Render("> " + filterDisplay))
-	b.WriteString("\n\n")
-
-	// Show filtered projects
-	filtered := m.getFilteredProjects()
-	maxVisible := 10
-	startIdx := 0
-
-	// Adjust scroll position
-	if m.projectSelectorIndex >= maxVisible {
-		startIdx = m.projectSelectorIndex - maxVisible + 1
-	}
-
-	endIdx := startIdx + maxVisible
-	if endIdx > len(filtered) {
-		endIdx = len(filtered)
-	}
-
-	if len(filtered) == 0 {
-		b.WriteString(helpStyle.Render("No projects match filter"))
+	// Show loading state
+	if m.loadingProjects {
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render(m.spinner.View() + " Loading projects..."))
 		b.WriteString("\n")
 	} else {
-		for i := startIdx; i < endIdx; i++ {
-			p := filtered[i]
-			isSelected := i == m.projectSelectorIndex
-			isActive := m.selectedProject != nil && m.selectedProject.ID == p.ID
+		// Show filter input
+		filterDisplay := m.projectFilter
+		if filterDisplay == "" {
+			filterDisplay = "type to filter..."
+		}
+		b.WriteString(projectFilterStyle.Render("> " + filterDisplay))
+		b.WriteString("\n\n")
 
-			var style lipgloss.Style
-			prefix := "  "
+		// Show filtered projects
+		filtered := m.getFilteredProjects()
+		maxVisible := 10
+		startIdx := 0
 
-			if isSelected && isActive {
-				style = projectItemActiveSelectedStyle
-				prefix = "> "
-			} else if isSelected {
-				style = projectItemSelectedStyle
-				prefix = "> "
-			} else if isActive {
-				style = projectItemActiveStyle
-			} else {
-				style = projectItemStyle
-			}
-
-			line := prefix + p.NameWithNamespace
-			if isActive {
-				line += " (current)"
-			}
-			b.WriteString(style.Render(line))
-			b.WriteString("\n")
+		// Adjust scroll position
+		if m.projectSelectorIndex >= maxVisible {
+			startIdx = m.projectSelectorIndex - maxVisible + 1
 		}
 
-		// Show scroll indicator
-		if len(filtered) > maxVisible {
-			b.WriteString(helpStyle.Render(
-				fmt.Sprintf("  (%d/%d)", m.projectSelectorIndex+1, len(filtered))))
-			b.WriteString("\n")
+		endIdx := startIdx + maxVisible
+		if endIdx > len(filtered) {
+			endIdx = len(filtered)
 		}
-	}
 
-	// Help footer
-	b.WriteString("\n")
-	if m.selectedProject == nil {
-		b.WriteString(helpStyle.Render("↑/↓: navigate • enter: select (required)"))
-	} else {
-		b.WriteString(helpStyle.Render("↑/↓: navigate • enter: select • esc: close"))
+		if len(filtered) == 0 {
+			b.WriteString(helpStyle.Render("No projects match filter"))
+			b.WriteString("\n")
+		} else {
+			for i := startIdx; i < endIdx; i++ {
+				p := filtered[i]
+				isSelected := i == m.projectSelectorIndex
+				isActive := m.selectedProject != nil && m.selectedProject.ID == p.ID
+
+				var style lipgloss.Style
+				prefix := "  "
+
+				if isSelected && isActive {
+					style = projectItemActiveSelectedStyle
+					prefix = "> "
+				} else if isSelected {
+					style = projectItemSelectedStyle
+					prefix = "> "
+				} else if isActive {
+					style = projectItemActiveStyle
+				} else {
+					style = projectItemStyle
+				}
+
+				line := prefix + p.NameWithNamespace
+				if isActive {
+					line += " (current)"
+				}
+				b.WriteString(style.Render(line))
+				b.WriteString("\n")
+			}
+
+			// Show scroll indicator
+			if len(filtered) > maxVisible {
+				b.WriteString(helpStyle.Render(
+					fmt.Sprintf("  (%d/%d)", m.projectSelectorIndex+1, len(filtered))))
+				b.WriteString("\n")
+			}
+		}
+
+		// Help footer
+		b.WriteString("\n")
+		if m.selectedProject == nil {
+			b.WriteString(helpStyle.Render("↓/↑/C+n/p: navigate • enter: select (reqired)"))
+		} else {
+			b.WriteString(helpStyle.Render("↓/↑/C+n/p: navigate • enter: select • esc/C+q: close"))
+		}
 	}
 
 	config := ModalConfig{

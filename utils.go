@@ -1,8 +1,12 @@
 package main
 
 import (
+	"os/exec"
+	"runtime"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/reflow/truncate"
 )
@@ -97,3 +101,38 @@ func maxLineWidth(lines []string) int {
 }
 
 func stringPtr(s string) *string { return &s }
+
+// overlayLoadingModal renders a centered loading modal overlay
+func overlayLoadingModal(spinnerView, background string, width, height int) string {
+	loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+	content := loadingStyle.Render(spinnerView + " Loading...")
+
+	config := ModalConfig{
+		Width:    ModalWidth{Value: 30, Percent: false},
+		MinWidth: 20,
+		MaxWidth: 40,
+		Style:    commandMenuStyle,
+	}
+
+	modalContent := renderModal(content, config, width)
+	return placeOverlayCenter(modalContent, background, width, height)
+}
+
+// openInBrowser opens a URL in the default browser
+func openInBrowser(url string) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("open", url)
+		case "linux":
+			cmd = exec.Command("xdg-open", url)
+		case "windows":
+			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		default:
+			return nil
+		}
+		cmd.Start()
+		return nil
+	}
+}
