@@ -125,4 +125,7 @@ type AppConfig struct {
 	SelectedProjectPath      string `json:"selected_project_path"`
 	SelectedProjectName      string `json:"selected_project_name"`
 	SelectedProjectShortName string `json:"selected_project_short_name"`
+
+	// Release settings
+	ExcludePatterns string `json:"exclude_patterns"` // File patterns to exclude from release, one per line
 }

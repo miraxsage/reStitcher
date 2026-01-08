@@ -16,6 +16,7 @@ type commandItem struct {
 // commands is the list of available commands
 var commands = []commandItem{
 	{name: "project", desc: "Select GitLab project to filter MRs"},
+	{name: "settings", desc: "Configure application settings"},
 	{name: "logout", desc: "Clear your current gitlab credentials to auth again"},
 }
 
@@ -49,7 +50,7 @@ func (m model) updateCommandMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) executeCommand(name string) (tea.Model, tea.Cmd) {
 	switch name {
 	case "project":
-		m.showCommandMenu = false
+		m.closeAllModals()
 		m.showProjectSelector = true
 		m.projectSelectorIndex = 0
 		m.projectFilter = ""
@@ -61,7 +62,18 @@ func (m model) executeCommand(name string) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "settings":
+		m.closeAllModals()
+		m.showSettings = true
+		m.settingsTab = 0
+		// Load current settings
+		if config, err := LoadConfig(); err == nil {
+			m.settingsExcludePatterns.SetValue(config.ExcludePatterns)
+		}
+		return m, m.settingsExcludePatterns.Focus()
+
 	case "logout":
+		m.closeAllModals()
 		// Delete credentials from keyring
 		DeleteCredentials()
 
@@ -69,7 +81,6 @@ func (m model) executeCommand(name string) (tea.Model, tea.Cmd) {
 		SaveSelectedProject(nil)
 
 		// Reset to auth screen
-		m.showCommandMenu = false
 		m.screen = screenAuth
 		m.inputs = initAuthInputs()
 		m.focusIndex = 0

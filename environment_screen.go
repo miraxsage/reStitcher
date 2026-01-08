@@ -40,7 +40,7 @@ var (
 func getEnvBranchColor(envName string) string {
 	switch envName {
 	case "DEVELOP":
-		return "245"
+		return "137"
 	case "TEST":
 		return "226"
 	case "STAGE":
@@ -56,7 +56,7 @@ func getEnvBranchColor(envName string) string {
 func getEnvHintStyle(envName string) lipgloss.Style {
 	switch envName {
 	case "DEVELOP":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("8"))
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("94"))
 	case "TEST":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("232")).Background(lipgloss.Color("226"))
 	case "STAGE":

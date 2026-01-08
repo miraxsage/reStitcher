@@ -64,4 +64,45 @@ var (
 	commandDescStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("241")).
 				MarginLeft(2)
+
+	// Settings modal styles
+	settingsTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("62"))
+
+	settingsTabActiveStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("255")).
+				Background(lipgloss.Color("62")).
+				Padding(0, 2)
+
+	settingsTabStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("241")).
+				Padding(0, 2)
+
+	settingsLabelStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("255"))
+
+	settingsDescStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("245"))
+
+	settingsErrorStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("9"))
+
+	settingsButtonStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("255")).
+				Background(lipgloss.Color("240")).
+				Padding(0, 2)
+
+	settingsButtonActiveStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("255")).
+					Background(lipgloss.Color("62")).
+					Bold(true).
+					Padding(0, 2)
+
+	settingsButtonDisabledStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("245")).
+					Background(lipgloss.Color("238")).
+					Padding(0, 2)
 )

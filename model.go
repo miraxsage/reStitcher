@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -61,6 +62,13 @@ type model struct {
 	projectSelectorIndex int
 	projectFilter        string
 	selectedProject      *Project
+
+	// Settings modal
+	showSettings            bool
+	settingsTab             int // Current tab index (0 = Release)
+	settingsExcludePatterns textarea.Model
+	settingsError           string // Validation error message
+	settingsFocusIndex      int    // 0 = textarea, 1 = save button
 }
 
 // NewModel creates a new application model
@@ -69,12 +77,27 @@ func NewModel() model {
 	s.Spinner = spinner.MiniDot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
 
+	// Initialize settings textarea
+	ta := textarea.New()
+	ta.Placeholder = "Enter file patterns..."
+	ta.ShowLineNumbers = true
+	ta.SetHeight(6)
+	ta.SetWidth(50)
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.FocusedStyle.Base = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62"))
+	ta.BlurredStyle.Base = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("240"))
+
 	return model{
-		screen:     screenLoading,
-		inputs:     initAuthInputs(),
-		focusIndex: 0,
-		spinner:    s,
-		loading:    true, // Initial loading state
+		screen:                  screenLoading,
+		inputs:                  initAuthInputs(),
+		focusIndex:              0,
+		spinner:                 s,
+		loading:                 true, // Initial loading state
+		settingsExcludePatterns: ta,
 		environments: []Environment{
 			{Name: "DEVELOP", BranchName: "develop"},
 			{Name: "TEST", BranchName: "testing"},
@@ -89,6 +112,17 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(textinput.Blink, m.spinner.Tick, checkStoredCredentials())
 }
 
+// closeAllModals closes all open modals
+func (m *model) closeAllModals() {
+	m.showCommandMenu = false
+	m.showProjectSelector = false
+	m.showErrorModal = false
+	m.errorModalMsg = ""
+	m.showSettings = false
+	m.settingsError = ""
+	m.settingsExcludePatterns.Blur()
+}
+
 // Update handles all messages
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -98,6 +132,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+
+		// Block all input during loading states
+		if m.loading || m.loadingProjects || m.loadingMRs {
+			return m, nil
+		}
+
 		// Handle error modal if open
 		if m.showErrorModal {
 			switch msg.String() {
@@ -106,6 +146,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.errorModalMsg = ""
 			}
 			return m, nil
+		}
+
+		// Handle settings modal if open
+		if m.showSettings {
+			return m.updateSettings(msg)
 		}
 
 		// Handle project selector if open
@@ -120,6 +165,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Open command menu with "/" (except on auth screen)
 		if msg.String() == "/" && m.screen != screenAuth {
+			m.closeAllModals()
 			m.showCommandMenu = true
 			m.commandMenuIndex = 0
 			return m, nil
@@ -224,6 +270,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingProjects = false
 		m.projectsLoaded = true
 		if msg.err != nil {
+			m.closeAllModals()
 			m.showErrorModal = true
 			m.errorModalMsg = "Failed to fetch projects: " + msg.err.Error()
 		} else {
@@ -236,6 +283,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingMRs = false
 		m.mrsLoaded = true
 		if msg.err != nil {
+			m.closeAllModals()
 			m.showErrorModal = true
 			m.errorModalMsg = msg.err.Error()
 			// Update viewport to show hint even on error
@@ -277,6 +325,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
+	// Update settings textarea for non-KeyMsg messages (like cursor blink)
+	if m.showSettings {
+		var cmd tea.Cmd
+		m.settingsExcludePatterns, cmd = m.settingsExcludePatterns.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
 	return m, tea.Batch(cmds...)
 }
 
@@ -311,6 +366,11 @@ func (m model) View() string {
 	// Overlay project selector if open
 	if m.showProjectSelector {
 		view = m.overlayProjectSelector(view)
+	}
+
+	// Overlay settings modal if open
+	if m.showSettings {
+		view = m.overlaySettings(view)
 	}
 
 	// Overlay error modal if open

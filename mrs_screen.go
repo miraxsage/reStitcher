@@ -256,6 +256,9 @@ func (m *model) initListScreen() {
 	l.KeyMap.Quit.SetEnabled(false)
 	l.KeyMap.ForceQuit.SetEnabled(false)
 
+	// Style "no items" text as white
+	l.Styles.NoItems = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+
 	m.list = l
 	m.ready = false
 }
@@ -376,7 +379,7 @@ func (m model) renderMarkdown() string {
 
 	selected := m.list.SelectedItem()
 	if selected == nil {
-		return "No merge requests found.\nPress 'r' to refresh."
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Render("No merge requests found.\nPress 'r' to refresh.")
 	}
 
 	style := styles.DarkStyleConfig
