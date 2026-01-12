@@ -132,9 +132,19 @@ func (m *model) updateReleaseButtons() {
 	}
 }
 
-// updateReleaseViewport updates the viewport content with output buffer
+// updateReleaseViewport updates the viewport content with output buffer and virtual terminal screen
 func (m *model) updateReleaseViewport() {
-	content := strings.Join(m.releaseOutputBuffer, "\n")
+	// Combine command headers (output buffer) with current virtual terminal screen
+	var content string
+	if len(m.releaseOutputBuffer) > 0 {
+		content = strings.Join(m.releaseOutputBuffer, "\n")
+	}
+	if m.releaseCurrentScreen != "" {
+		if content != "" {
+			content += "\n"
+		}
+		content += m.releaseCurrentScreen
+	}
 	m.releaseViewport.SetContent(content)
 	m.releaseViewport.GotoBottom()
 }
@@ -656,6 +666,7 @@ func (m *model) startRelease() (tea.Model, tea.Cmd) {
 	m.releaseState = state
 	m.screen = screenRelease
 	m.releaseOutputBuffer = []string{}
+	m.releaseCurrentScreen = ""
 	m.initReleaseScreen()
 
 	// Save initial state
@@ -696,7 +707,7 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 		case ReleaseStepMergeBranches:
 			// Check if we need to continue a merge
 			if DetectMergeConflict(workDir) {
-				command = "git merge --continue"
+				command = "GIT_EDITOR=true git merge --continue"
 			} else if state.CurrentMRIndex < len(state.MRBranches) {
 				// Check if branch already merged
 				branch := state.MRBranches[state.CurrentMRIndex]
@@ -972,6 +983,7 @@ func (m model) abortRelease() (tea.Model, tea.Cmd) {
 	ClearReleaseState()
 	m.releaseState = nil
 	m.releaseOutputBuffer = nil
+	m.releaseCurrentScreen = ""
 	m.releaseRunning = false
 
 	// Go back to main screen
@@ -999,6 +1011,7 @@ func (m model) completeRelease() (tea.Model, tea.Cmd) {
 	ClearReleaseState()
 	m.releaseState = nil
 	m.releaseOutputBuffer = nil
+	m.releaseCurrentScreen = ""
 	m.releaseRunning = false
 
 	// Go back to main screen
@@ -1012,6 +1025,7 @@ func (m *model) resumeRelease(state *ReleaseState) tea.Cmd {
 	m.releaseState = state
 	m.screen = screenRelease
 	m.releaseOutputBuffer = []string{}
+	m.releaseCurrentScreen = ""
 
 	// Add info about resuming
 	m.appendReleaseOutput("Resuming previous release...")

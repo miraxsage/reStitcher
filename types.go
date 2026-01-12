@@ -196,6 +196,10 @@ type releaseOutputMsg struct {
 	line string
 }
 
+type releaseScreenMsg struct {
+	content string
+}
+
 type releaseStepCompleteMsg struct {
 	step   ReleaseStep
 	err    error

@@ -1,16 +1,19 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
+	"github.com/ActiveState/vt10x"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/creack/pty"
@@ -20,6 +23,48 @@ import (
 var commandLogStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("33"))
 
+// VirtualTerminal wraps vt10x to provide terminal emulation
+type VirtualTerminal struct {
+	state *vt10x.State
+	vt    *vt10x.VT
+}
+
+// emptyReader is a reader that always returns EOF
+type emptyReader struct{}
+
+func (emptyReader) Read(p []byte) (int, error) { return 0, io.EOF }
+
+// NewVirtualTerminal creates a new virtual terminal with the given dimensions
+func NewVirtualTerminal(cols, rows int) *VirtualTerminal {
+	state := &vt10x.State{}
+	// Use New with empty reader - we'll use Write method directly
+	vt, _ := vt10x.New(state, emptyReader{}, io.Discard)
+	vt.Resize(cols, rows)
+	return &VirtualTerminal{
+		state: state,
+		vt:    vt,
+	}
+}
+
+// Write feeds data to the virtual terminal and parses it
+func (vt *VirtualTerminal) Write(data []byte) {
+	// vt.Write() internally locks state
+	vt.vt.Write(data)
+}
+
+// RenderScreen returns the current screen buffer as a string
+func (vt *VirtualTerminal) RenderScreen() string {
+	// Don't lock here - state.String() is read-only and Write() handles its own locking
+	// Adding our own lock causes deadlock with Write()'s internal lock
+	return vt.state.String()
+}
+
+// Resize resizes the virtual terminal
+func (vt *VirtualTerminal) Resize(cols, rows int) {
+	// vt.Resize() internally locks state
+	vt.vt.Resize(cols, rows)
+}
+
 // GitExecutor handles git command execution via PTY
 type GitExecutor struct {
 	workDir string
@@ -28,6 +73,9 @@ type GitExecutor struct {
 	program *tea.Program // For sending messages back to UI
 	cols    uint16
 	rows    uint16
+	vterm   *VirtualTerminal
+	doneCh  chan struct{}
+	mu      sync.Mutex
 }
 
 // NewGitExecutor creates a new git executor for the given directory
@@ -40,13 +88,12 @@ func NewGitExecutor(workDir string, program *tea.Program) *GitExecutor {
 	}
 }
 
-// RunCommand executes a shell command via PTY and streams output
+// RunCommand executes a shell command via PTY and streams output through virtual terminal
 func (g *GitExecutor) RunCommand(command string) (string, error) {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = g.workDir
 
 	// Send command header to UI immediately if program is set (before PTY starts)
-	// Format: empty line, styled command, empty line, then output
 	if g.program != nil {
 		g.program.Send(releaseOutputMsg{line: ""})
 		g.program.Send(releaseOutputMsg{line: commandLogStyle.Render(command)})
@@ -59,47 +106,102 @@ func (g *GitExecutor) RunCommand(command string) (string, error) {
 		return "", fmt.Errorf("failed to start PTY: %w", err)
 	}
 
+	g.mu.Lock()
 	g.ptyFile = ptmx
 	g.cmd = cmd
+	g.doneCh = make(chan struct{})
+	g.vterm = NewVirtualTerminal(int(g.cols), int(g.rows))
+	g.mu.Unlock()
 
-	// Read output and send to UI
+	// Capture vterm reference for goroutines
+	vterm := g.vterm
+
+	// Read raw bytes from PTY and feed to virtual terminal
 	var outputBuilder strings.Builder
-	scanner := bufio.NewScanner(ptmx)
-	for scanner.Scan() {
-		line := scanner.Text()
-		outputBuilder.WriteString(line + "\n")
-		if g.program != nil {
-			g.program.Send(releaseOutputMsg{line: line})
+	readDone := make(chan struct{})
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := ptmx.Read(buf)
+			if n > 0 {
+				outputBuilder.Write(buf[:n])
+				vterm.Write(buf[:n])
+			}
+			if err != nil {
+				close(readDone)
+				return
+			}
 		}
+	}()
+
+	// Throttled render loop (50ms = 20 FPS max)
+	if g.program != nil {
+		go func() {
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-g.doneCh:
+					// Final render
+					content := vterm.RenderScreen()
+					g.program.Send(releaseScreenMsg{content: strings.TrimRight(content, " \n")})
+					return
+				case <-ticker.C:
+					content := vterm.RenderScreen()
+					// Trim trailing whitespace/newlines from vt10x screen
+					content = strings.TrimRight(content, " \n")
+					if content != "" {
+						g.program.Send(releaseScreenMsg{content: content})
+					}
+				}
+			}
+		}()
 	}
 
 	// Wait for command to finish
 	err = cmd.Wait()
 	output := outputBuilder.String()
 
-	// Send empty line after output for visual separation
-	if g.program != nil {
-		g.program.Send(releaseOutputMsg{line: ""})
-	}
+	// Wait for read goroutine to finish
+	<-readDone
 
+	// Signal done to render loop
+	g.mu.Lock()
+	close(g.doneCh)
 	g.ptyFile.Close()
 	g.ptyFile = nil
 	g.cmd = nil
+	g.vterm = nil
+	g.mu.Unlock()
+
+	// Small delay to allow final render
+	time.Sleep(60 * time.Millisecond)
 
 	return output, err
 }
 
 // Resize handles terminal resize
 func (g *GitExecutor) Resize(rows, cols uint16) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	g.rows = rows
 	g.cols = cols
-	if g.ptyFile == nil {
-		return nil
+
+	// Resize PTY if running
+	if g.ptyFile != nil {
+		pty.Setsize(g.ptyFile, &pty.Winsize{
+			Rows: rows,
+			Cols: cols,
+		})
 	}
-	return pty.Setsize(g.ptyFile, &pty.Winsize{
-		Rows: rows,
-		Cols: cols,
-	})
+
+	// Resize virtual terminal if running
+	if g.vterm != nil {
+		g.vterm.Resize(int(cols), int(rows))
+	}
+
+	return nil
 }
 
 // Kill terminates the running command
@@ -251,7 +353,7 @@ func (r *ReleaseCommands) Step2MergeBranch(branchIndex int) string {
 	if branchIndex >= len(r.branches) {
 		return ""
 	}
-	return fmt.Sprintf("git merge origin/%s", r.branches[branchIndex])
+	return fmt.Sprintf("GIT_EDITOR=true git merge --no-edit origin/%s", r.branches[branchIndex])
 }
 
 // Step3CheckoutEnv returns the command for step 3

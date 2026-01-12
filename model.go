@@ -78,6 +78,7 @@ type model struct {
 	releaseState          *ReleaseState
 	releaseViewport       viewport.Model
 	releaseOutputBuffer   []string
+	releaseCurrentScreen  string // Virtual terminal screen content
 	releaseButtonIndex    int
 	releaseButtons        []ReleaseButton
 	releaseRunning        bool
@@ -374,6 +375,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case releaseOutputMsg:
 		m.appendReleaseOutput(msg.line)
+		return m, nil
+
+	case releaseScreenMsg:
+		m.releaseCurrentScreen = msg.content
+		m.updateReleaseViewport()
 		return m, nil
 
 	case releaseStepCompleteMsg:
