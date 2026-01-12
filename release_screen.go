@@ -472,7 +472,13 @@ func (m model) renderReleaseStatus(width int) string {
 			state.Environment.Name)
 
 	case ReleaseStepCopyContent:
-		status = fmt.Sprintf("%s %s %s\nCopying content and creating release commit...",
+		status = fmt.Sprintf("%s %s %s\nCopying content from root branch...",
+			m.spinner.View(),
+			releaseLoaderStyle.Render("RELEASING"),
+			releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)))
+
+	case ReleaseStepCommit:
+		status = fmt.Sprintf("%s %s %s\nCreating release commit...",
 			m.spinner.View(),
 			releaseLoaderStyle.Render("RELEASING"),
 			releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)))
@@ -699,6 +705,21 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 
 		executor := NewGitExecutor(workDir, m.program) // Pass program for real-time output
 
+		// Set executor size based on viewport dimensions
+		// Calculate width: total width - sidebar - content padding - viewport padding
+		if m.width > 0 {
+			sidebarW := sidebarWidth(m.width)
+			terminalWidth := m.width - sidebarW - 4 - 4 // content padding, viewport padding
+			if terminalWidth < 40 {
+				terminalWidth = 40
+			}
+			terminalHeight := m.releaseViewport.Height
+			if terminalHeight < 10 {
+				terminalHeight = 10
+			}
+			executor.SetSize(uint16(terminalWidth), uint16(terminalHeight))
+		}
+
 		switch step {
 		case ReleaseStepCheckoutRoot:
 			command = cmds.Step1CheckoutRoot()
@@ -759,18 +780,22 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 				}
 			}
 
-			// Step 4.4: Get next v-number and create commit
+			output = output1 + output2 + output3
+
+		case ReleaseStepCommit:
+			// Get next v-number and create commit
 			vNumber, verr := GetNextVersionNumber(workDir, state.Environment.BranchName, state.Version)
 			if verr != nil {
-				return releaseStepCompleteMsg{step: step, err: verr, output: output1 + output2 + output3}
+				return releaseStepCompleteMsg{step: step, err: verr, output: ""}
 			}
 
 			title, body := BuildCommitMessage(state.Version, state.Environment.BranchName, vNumber, state.MRBranches)
-			commitCmd := fmt.Sprintf("git add -A && git commit -m %q -m %q", title, body)
-			output4, err4 := executor.RunCommand(commitCmd)
-
-			output = output1 + output2 + output3 + output4
-			err = err4
+			// Use $'...' bash syntax to properly interpret \n as newlines in commit body
+			// Escape single quotes and convert actual newlines to \n escape sequences
+			escapedBody := strings.ReplaceAll(body, "'", "'\\''")
+			escapedBody = strings.ReplaceAll(escapedBody, "\n", "\\n")
+			commitCmd := fmt.Sprintf("git add -A && git commit -m %q -m $'%s'", title, escapedBody)
+			output, err = executor.RunCommand(commitCmd)
 
 		case ReleaseStepPushAndCreateMR:
 			command = cmds.Step6Push()
@@ -787,6 +812,24 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 
 // handleReleaseStepComplete processes step completion
 func (m *model) handleReleaseStepComplete(msg releaseStepCompleteMsg) (tea.Model, tea.Cmd) {
+	// Reset empty line flag for next command
+	m.releaseNeedEmptyLineAfterCommand = false
+
+	// Save current terminal screen to buffer (for real-time streaming mode)
+	// This preserves the command output before the next command starts
+	if m.releaseCurrentScreen != "" {
+		lines := strings.Split(m.releaseCurrentScreen, "\n")
+		for _, line := range lines {
+			m.releaseOutputBuffer = append(m.releaseOutputBuffer, line)
+		}
+		// Enforce buffer limit
+		if len(m.releaseOutputBuffer) > maxOutputLines {
+			m.releaseOutputBuffer = m.releaseOutputBuffer[len(m.releaseOutputBuffer)-maxOutputLines:]
+		}
+		m.releaseCurrentScreen = ""
+		m.updateReleaseViewport()
+	}
+
 	// Append output to buffer only if not streamed in real-time
 	// (when program is set, output is already streamed via releaseOutputMsg)
 	if msg.output != "" && m.program == nil {
@@ -852,6 +895,10 @@ func (m *model) handleReleaseStepComplete(msg releaseStepCompleteMsg) (tea.Model
 		state.CurrentStep = nextStep
 
 	case ReleaseStepCopyContent:
+		nextStep = ReleaseStepCommit
+		state.CurrentStep = nextStep
+
+	case ReleaseStepCommit:
 		nextStep = ReleaseStepWaitForMR
 		state.CurrentStep = nextStep
 		// Don't continue automatically - wait for user button press

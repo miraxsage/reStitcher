@@ -141,7 +141,8 @@ const (
 	ReleaseStepCheckoutRoot    // Step 1: git checkout root && git pull && git checkout -B release/rpb-{ver}-root
 	ReleaseStepMergeBranches   // Step 2: git merge origin/{branch} for each MR
 	ReleaseStepCheckoutEnv     // Step 3: git checkout {env} && git pull && git checkout -B release/rpb-{ver}-{env}
-	ReleaseStepCopyContent     // Step 4: git rm -rf . && git checkout content && exclude files && git commit
+	ReleaseStepCopyContent     // Step 4: git rm -rf . && git checkout content && exclude files
+	ReleaseStepCommit          // Step 4b: git add -A && git commit (separate so retry doesn't redo file ops)
 	ReleaseStepWaitForMR       // Step 5: waiting for user to press "Create MR" button
 	ReleaseStepPushAndCreateMR // Step 6: git push && create GitLab MR
 	ReleaseStepComplete        // Done
@@ -198,6 +199,14 @@ type releaseOutputMsg struct {
 
 type releaseScreenMsg struct {
 	content string
+}
+
+type releaseCommandStartMsg struct {
+	command string
+}
+
+type releaseCommandEndMsg struct {
+	firstOutputLine string // First non-empty line of output, or empty if no output
 }
 
 type releaseStepCompleteMsg struct {

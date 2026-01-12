@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -75,17 +76,18 @@ type model struct {
 	settingsFocusIndex      int    // 0 = textarea, 1 = save button
 
 	// Release execution screen
-	releaseState          *ReleaseState
-	releaseViewport       viewport.Model
-	releaseOutputBuffer   []string
-	releaseCurrentScreen  string // Virtual terminal screen content
-	releaseButtonIndex    int
-	releaseButtons        []ReleaseButton
-	releaseRunning        bool
-	releaseExecutor       *GitExecutor
-	showAbortConfirm      bool
-	abortConfirmIndex     int  // 0 = Yes, 1 = Cancel
-	releaseViewportFocus  bool // true when viewport is focused
+	releaseState                     *ReleaseState
+	releaseViewport                  viewport.Model
+	releaseOutputBuffer              []string
+	releaseCurrentScreen             string // Virtual terminal screen content
+	releaseButtonIndex               int
+	releaseButtons                   []ReleaseButton
+	releaseRunning                   bool
+	releaseExecutor                  *GitExecutor
+	showAbortConfirm                 bool
+	abortConfirmIndex                int  // 0 = Yes, 1 = Cancel
+	releaseViewportFocus             bool // true when viewport is focused
+	releaseNeedEmptyLineAfterCommand bool // Flag to add empty line after command output if needed
 }
 
 // NewModel creates a new application model
@@ -377,7 +379,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendReleaseOutput(msg.line)
 		return m, nil
 
+	case releaseCommandStartMsg:
+		// Smart empty line before command: only add if last line isn't empty
+		if len(m.releaseOutputBuffer) > 0 {
+			lastLine := m.releaseOutputBuffer[len(m.releaseOutputBuffer)-1]
+			if strings.TrimSpace(lastLine) != "" {
+				m.appendReleaseOutput("")
+			}
+		}
+		// Wrap long commands to fit terminal width
+		terminalWidth := m.getTerminalWidth()
+		wrappedLines := wrapText(msg.command, terminalWidth)
+		for _, line := range wrappedLines {
+			m.appendReleaseOutput(commandLogStyle.Render(line))
+		}
+		// Mark that we need to check for empty line after command output
+		m.releaseNeedEmptyLineAfterCommand = true
+		return m, nil
+
 	case releaseScreenMsg:
+		// Handle empty line after command if needed
+		if m.releaseNeedEmptyLineAfterCommand && msg.content != "" {
+			m.releaseNeedEmptyLineAfterCommand = false
+			// Check if first line of output is empty
+			lines := strings.Split(msg.content, "\n")
+			if len(lines) > 0 && strings.TrimSpace(lines[0]) != "" {
+				// First line has content, add empty line separator
+				m.appendReleaseOutput("")
+			}
+		}
 		m.releaseCurrentScreen = msg.content
 		m.updateReleaseViewport()
 		return m, nil
@@ -460,4 +490,17 @@ func (m model) View() string {
 	}
 
 	return view
+}
+
+// getTerminalWidth returns the width available for terminal content
+func (m *model) getTerminalWidth() int {
+	if m.width == 0 {
+		return 80 // Default fallback
+	}
+	sidebarW := sidebarWidth(m.width)
+	terminalWidth := m.width - sidebarW - 4 - 4 // content padding, viewport padding
+	if terminalWidth < 40 {
+		terminalWidth = 40
+	}
+	return terminalWidth
 }

@@ -27,6 +27,8 @@ var commandLogStyle = lipgloss.NewStyle().
 type VirtualTerminal struct {
 	state *vt10x.State
 	vt    *vt10x.VT
+	cols  int
+	rows  int
 }
 
 // emptyReader is a reader that always returns EOF
@@ -43,6 +45,8 @@ func NewVirtualTerminal(cols, rows int) *VirtualTerminal {
 	return &VirtualTerminal{
 		state: state,
 		vt:    vt,
+		cols:  cols,
+		rows:  rows,
 	}
 }
 
@@ -52,17 +56,118 @@ func (vt *VirtualTerminal) Write(data []byte) {
 	vt.vt.Write(data)
 }
 
-// RenderScreen returns the current screen buffer as a string
+// RenderScreen returns the current screen buffer as a string with ANSI colors preserved
 func (vt *VirtualTerminal) RenderScreen() string {
-	// Don't lock here - state.String() is read-only and Write() handles its own locking
-	// Adding our own lock causes deadlock with Write()'s internal lock
-	return vt.state.String()
+	// First pass: find the last row with actual content
+	lastContentRow := -1
+	for y := vt.rows - 1; y >= 0; y-- {
+		for x := 0; x < vt.cols; x++ {
+			ch, _, _ := vt.state.Cell(x, y)
+			if ch != ' ' && ch != 0 {
+				lastContentRow = y
+				break
+			}
+		}
+		if lastContentRow >= 0 {
+			break
+		}
+	}
+
+	// If no content, return empty
+	if lastContentRow < 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	var lastFg, lastBg vt10x.Color = vt10x.DefaultFG, vt10x.DefaultBG
+
+	// Second pass: render only up to the last row with content
+	for y := 0; y <= lastContentRow; y++ {
+		lineContent := strings.Builder{}
+
+		for x := 0; x < vt.cols; x++ {
+			ch, fg, bg := vt.state.Cell(x, y)
+
+			// Emit color changes
+			if fg != lastFg || bg != lastBg {
+				colorSeq := vt.buildColorSequence(fg, bg)
+				if colorSeq != "" {
+					lineContent.WriteString(colorSeq)
+				}
+				lastFg = fg
+				lastBg = bg
+			}
+
+			// Write character (use space for null)
+			if ch == 0 {
+				lineContent.WriteRune(' ')
+			} else {
+				lineContent.WriteRune(ch)
+			}
+		}
+
+		// Trim trailing spaces from each line
+		line := strings.TrimRight(lineContent.String(), " ")
+		sb.WriteString(line)
+		if y < lastContentRow {
+			sb.WriteString("\n")
+		}
+	}
+
+	// Reset colors at the end
+	sb.WriteString("\033[0m")
+
+	return sb.String()
+}
+
+// buildColorSequence builds ANSI escape sequence for foreground and background colors
+func (vt *VirtualTerminal) buildColorSequence(fg, bg vt10x.Color) string {
+	var seq strings.Builder
+	seq.WriteString("\033[")
+
+	parts := []string{}
+
+	// Handle foreground color
+	if fg == vt10x.DefaultFG {
+		parts = append(parts, "39") // Default foreground
+	} else if fg.ANSI() {
+		// ANSI colors 0-7: 30-37, 8-15: 90-97
+		if fg < 8 {
+			parts = append(parts, fmt.Sprintf("%d", 30+int(fg)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d", 90+int(fg)-8))
+		}
+	} else {
+		// 256 color mode
+		parts = append(parts, fmt.Sprintf("38;5;%d", int(fg)))
+	}
+
+	// Handle background color
+	if bg == vt10x.DefaultBG {
+		parts = append(parts, "49") // Default background
+	} else if bg.ANSI() {
+		// ANSI colors 0-7: 40-47, 8-15: 100-107
+		if bg < 8 {
+			parts = append(parts, fmt.Sprintf("%d", 40+int(bg)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d", 100+int(bg)-8))
+		}
+	} else {
+		// 256 color mode
+		parts = append(parts, fmt.Sprintf("48;5;%d", int(bg)))
+	}
+
+	seq.WriteString(strings.Join(parts, ";"))
+	seq.WriteString("m")
+	return seq.String()
 }
 
 // Resize resizes the virtual terminal
 func (vt *VirtualTerminal) Resize(cols, rows int) {
 	// vt.Resize() internally locks state
 	vt.vt.Resize(cols, rows)
+	vt.cols = cols
+	vt.rows = rows
 }
 
 // GitExecutor handles git command execution via PTY
@@ -83,9 +188,17 @@ func NewGitExecutor(workDir string, program *tea.Program) *GitExecutor {
 	return &GitExecutor{
 		workDir: workDir,
 		program: program,
-		cols:    80,
+		cols:    120, // Default, should be set via SetSize before running commands
 		rows:    24,
 	}
+}
+
+// SetSize sets the terminal size for the executor
+func (g *GitExecutor) SetSize(cols, rows uint16) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.cols = cols
+	g.rows = rows
 }
 
 // RunCommand executes a shell command via PTY and streams output through virtual terminal
@@ -94,10 +207,9 @@ func (g *GitExecutor) RunCommand(command string) (string, error) {
 	cmd.Dir = g.workDir
 
 	// Send command header to UI immediately if program is set (before PTY starts)
+	// Use special message to request smart empty line handling
 	if g.program != nil {
-		g.program.Send(releaseOutputMsg{line: ""})
-		g.program.Send(releaseOutputMsg{line: commandLogStyle.Render(command)})
-		g.program.Send(releaseOutputMsg{line: ""})
+		g.program.Send(releaseCommandStartMsg{command: command})
 	}
 
 	// Start PTY
