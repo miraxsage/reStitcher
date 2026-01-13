@@ -167,7 +167,7 @@ func (m model) renderTripleSidebar(width int, availableHeight int) string {
 func (m model) renderVersionSidebarSection(width int, contentHeight int) string {
 	var sb strings.Builder
 
-	sb.WriteString(" " + envTitleStepStyle.Render("[3]") +
+	sb.WriteString(envTitleStepStyle.Render("[3]") +
 		envTitleStyle.Render(" Version "))
 	sb.WriteString("\n\n")
 
@@ -180,7 +180,7 @@ func (m model) renderVersionSidebarSection(width int, contentHeight int) string 
 		versionStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("255")).
 			Bold(true)
-		sb.WriteString(" " + versionStyle.Render(version))
+		sb.WriteString(versionStyle.Render(version))
 	}
 
 	// Wrap in bordered box (Height is content height, border adds 2 more lines)

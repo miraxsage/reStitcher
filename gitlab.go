@@ -343,7 +343,12 @@ func (c *GitLabClient) CreateMergeRequest(projectID int, sourceBranch, targetBra
 
 	if resp.StatusCode != 201 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GitLab API error: status %d, body: %s", resp.StatusCode, string(body))
+		bodyStr := string(body)
+		// Check for insufficient scope error and provide helpful message
+		if resp.StatusCode == 403 && strings.Contains(bodyStr, "insufficient_scope") {
+			return nil, fmt.Errorf("token lacks 'api' scope - please regenerate your GitLab token with 'api' scope enabled")
+		}
+		return nil, fmt.Errorf("GitLab API error: status %d, body: %s", resp.StatusCode, bodyStr)
 	}
 
 	var mr MergeRequest

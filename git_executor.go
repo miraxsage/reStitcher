@@ -21,7 +21,7 @@ import (
 
 // Style for command logging in terminal output
 var commandLogStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("33"))
+	Foreground(lipgloss.Color("220"))
 
 // VirtualTerminal wraps vt10x to provide terminal emulation
 type VirtualTerminal struct {
@@ -582,8 +582,11 @@ func GetNextVersionNumber(workDir, envBranch, currentVersion string) (int, error
 // BuildCommitMessage builds the commit message for step 4
 func BuildCommitMessage(version, envBranch string, vNumber int, branches []string) (string, string) {
 	title := fmt.Sprintf("release:%s %s v%d", version, envBranch, vNumber)
-	body := strings.Join(branches, "\n")
-	return title, body
+	var body strings.Builder
+	for _, branch := range branches {
+		body.WriteString("- " + branch + "\n")
+	}
+	return title, body.String()
 }
 
 // GetExcludedFiles returns list of files matching exclusion patterns
@@ -703,11 +706,11 @@ func DeleteLocalBranches(workDir, version, envBranch string) error {
 	return nil
 }
 
-// GetLast500Lines returns the last 500 lines from a string
-func GetLast500Lines(output string) string {
+// GetLastNLines returns the last n lines from a string
+func GetLastNLines(output string, n int) string {
 	lines := strings.Split(output, "\n")
-	if len(lines) <= 500 {
+	if len(lines) <= n {
 		return output
 	}
-	return strings.Join(lines[len(lines)-500:], "\n")
+	return strings.Join(lines[len(lines)-n:], "\n")
 }

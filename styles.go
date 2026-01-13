@@ -26,11 +26,11 @@ var (
 
 	formTitleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("62")).
+			Foreground(lipgloss.Color("105")).
 			MarginBottom(1)
 
 	inputLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255"))
+			Foreground(lipgloss.Color("7"))
 
 	// Error styles
 	errorBoxStyle = lipgloss.NewStyle().
@@ -51,7 +51,7 @@ var (
 
 	commandMenuTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("62")).
+				Foreground(lipgloss.Color("105")).
 				MarginBottom(1)
 
 	commandItemStyle = lipgloss.NewStyle().
@@ -59,16 +59,15 @@ var (
 
 	commandItemSelectedStyle = lipgloss.NewStyle().
 					Bold(true).
-					Foreground(lipgloss.Color("205"))
+					Foreground(lipgloss.Color("105"))
 
 	commandDescStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("241")).
-				MarginLeft(2)
+				Foreground(lipgloss.Color("241"))
 
 	// Settings modal styles
 	settingsTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("62"))
+				Foreground(lipgloss.Color("105"))
 
 	settingsTabActiveStyle = lipgloss.NewStyle().
 				Bold(true).
@@ -91,7 +90,7 @@ var (
 				Foreground(lipgloss.Color("9"))
 
 	settingsButtonStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("255")).
+				Foreground(lipgloss.Color("249")).
 				Background(lipgloss.Color("240")).
 				Padding(0, 2)
 

@@ -12,8 +12,8 @@ import (
 var (
 	envTitleStepStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("255")).
-				Background(lipgloss.Color("29"))
+				Foreground(lipgloss.Color("236")).
+				Background(lipgloss.Color("220"))
 
 	envTitleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -32,21 +32,20 @@ var (
 				Foreground(lipgloss.Color("255"))
 
 	mrBranchStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")).
-			PaddingLeft(1)
+			Foreground(lipgloss.Color("252"))
 )
 
 // getEnvBranchColor returns the foreground color for branch name based on environment
 func getEnvBranchColor(envName string) string {
 	switch envName {
 	case "DEVELOP":
-		return "137"
+		return "105"
 	case "TEST":
-		return "226"
+		return "220"
 	case "STAGE":
-		return "34"
+		return "36"
 	case "PROD":
-		return "175"
+		return "210"
 	default:
 		return "255"
 	}
@@ -56,13 +55,13 @@ func getEnvBranchColor(envName string) string {
 func getEnvHintStyle(envName string) lipgloss.Style {
 	switch envName {
 	case "DEVELOP":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("94"))
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62"))
 	case "TEST":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("232")).Background(lipgloss.Color("226"))
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("236")).Background(lipgloss.Color("220"))
 	case "STAGE":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("28"))
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("29"))
 	case "PROD":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("197"))
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("196"))
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
 	}
@@ -148,7 +147,7 @@ func (m model) viewEnvSelect() string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	// Help footer
-	helpText := "↓/↑/j/k: nav • enter: select • u: go back • /: commands • Ctrl+c: quit"
+	helpText := "j/k: nav • enter: select • u: go back • /: commands • Ctrl+c: quit"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, main, help)
@@ -162,7 +161,7 @@ func (m model) renderSelectedMRsSidebar(width int) string {
 	selectedCount := len(m.selectedMRs)
 
 	title := fmt.Sprintf(" MRs to release (%d) ", selectedCount)
-	sb.WriteString(" " + envTitleStepStyle.Render("[1]") +
+	sb.WriteString(envTitleStepStyle.Render("[1]") +
 		envTitleStyle.Render(title))
 	sb.WriteString("\n\n")
 

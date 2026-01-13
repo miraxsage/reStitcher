@@ -33,18 +33,19 @@ var (
 		descFg:  lipgloss.Color("242"),
 	}
 	checkedSelectedColors = mrItemColors{
-		titleFg:  lipgloss.Color("79"),
-		descFg:   lipgloss.Color("42"),
-		borderFg: lipgloss.Color("79"),
+		titleFg:  lipgloss.Color("220"),
+		descFg:   lipgloss.Color("214"),
+		borderFg: lipgloss.Color("220"),
 	}
 	checkedNormalColors = mrItemColors{
-		titleFg: lipgloss.Color("42"),
-		descFg:  lipgloss.Color("35"),
+		titleFg:  lipgloss.Color("214"),
+		descFg:   lipgloss.Color("172"),
+		borderFg: lipgloss.Color("214"),
 	}
 	normalSelectedColors = mrItemColors{
-		titleFg:  lipgloss.Color("170"),
-		descFg:   lipgloss.Color("139"),
-		borderFg: lipgloss.Color("170"),
+		titleFg:  lipgloss.Color("105"),
+		descFg:   lipgloss.Color("62"),
+		borderFg: lipgloss.Color("105"),
 	}
 	normalNormalColors = mrItemColors{
 		titleFg: lipgloss.Color("252"),
@@ -123,10 +124,10 @@ func truncateWithEllipsis(text string, maxWidth int) string {
 
 // mrDelegate is a custom delegate for displaying MR items with 2-line titles
 type mrDelegate struct {
-	selectedMRs *map[int]bool
+	selectedMRs map[int]bool
 }
 
-func newMRDelegate(selectedMRs *map[int]bool) mrDelegate {
+func newMRDelegate(selectedMRs map[int]bool) mrDelegate {
 	return mrDelegate{selectedMRs: selectedMRs}
 }
 
@@ -142,6 +143,11 @@ func (d mrDelegate) HeightForItem(item list.Item, m list.Model) int {
 
 	title := mr.Title()
 	width := m.Width() - 3
+
+	// Adjust width for marker if not draft
+	if !mr.MR().Draft {
+		width -= 4
+	}
 
 	titleLines := wrapText(title, width)
 	if len(titleLines) >= 2 {
@@ -162,7 +168,7 @@ func (d mrDelegate) Render(w io.Writer, m list.Model, index int, item list.Item)
 
 	isItemChecked := false
 	if !isDraft && d.selectedMRs != nil {
-		isItemChecked = (*d.selectedMRs)[mr.MR().IID]
+		isItemChecked = d.selectedMRs[mr.MR().IID]
 	}
 
 	// Get colors and build styles
@@ -172,16 +178,19 @@ func (d mrDelegate) Render(w io.Writer, m list.Model, index int, item list.Item)
 
 	// Prepare marker
 	marker := ""
+	wrapWidth := contentWidth
+
 	if !isDraft {
 		if isItemChecked {
 			marker = "[✓] "
 		} else {
 			marker = "[ ] "
 		}
+		wrapWidth -= 4
 	}
 
 	// Prepare title lines
-	titleLines := wrapText(mr.Title(), contentWidth)
+	titleLines := wrapText(mr.Title(), wrapWidth)
 	if len(titleLines) > 2 {
 		titleLines = titleLines[:2]
 		if len(titleLines[1]) > 0 {
@@ -244,9 +253,15 @@ func wrapText(text string, width int) []string {
 
 // initListScreen initializes the main list screen
 func (m *model) initListScreen() {
-	// Create empty list initially
-	m.selectedMRs = make(map[int]bool)
-	l := list.New([]list.Item{}, newMRDelegate(&m.selectedMRs), 0, 0)
+	// Clear selections
+	if m.selectedMRs == nil {
+		m.selectedMRs = make(map[int]bool)
+	} else {
+		for k := range m.selectedMRs {
+			delete(m.selectedMRs, k)
+		}
+	}
+	l := list.New([]list.Item{}, newMRDelegate(m.selectedMRs), 0, 0)
 	l.Title = "Open MRs"
 	l.SetShowHelp(false)
 	l.SetFilteringEnabled(true)
@@ -257,7 +272,7 @@ func (m *model) initListScreen() {
 	l.KeyMap.ForceQuit.SetEnabled(false)
 
 	// Style "no items" text as white
-	l.Styles.NoItems = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+	l.Styles.NoItems = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("255"))
 
 	m.list = l
 	m.ready = false
@@ -294,7 +309,7 @@ func (m *model) updateListSize() {
 	sidebarWidth := m.width / 3
 	contentWidth := m.width - sidebarWidth - 4
 
-	m.list.SetSize(sidebarWidth-4, m.height-5)
+	m.list.SetSize(sidebarWidth-4, m.height-6)
 
 	if !m.ready {
 		m.viewport = viewport.New(contentWidth-4, m.height-5)
@@ -357,6 +372,14 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case "d":
+		// Half page down in viewport
+		m.viewport.HalfViewDown()
+		return m, nil
+	case "u":
+		// Half page up in viewport
+		m.viewport.HalfViewUp()
+		return m, nil
 	}
 
 	// Handle list updates
@@ -385,17 +408,15 @@ func (m model) renderMarkdown() string {
 
 	selected := m.list.SelectedItem()
 	if selected == nil {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Render("No merge requests found.\nPress 'r' to refresh.")
+		return lipgloss.NewStyle().Padding(1).Foreground(lipgloss.Color("255")).Render("No merge requests found.\nPress 'r' to refresh.")
 	}
 
 	style := styles.DarkStyleConfig
-	style.Strong.Color = stringPtr("42")
-	style.H1.Prefix = ""
+	style.Strong.Color = stringPtr("220")
+	style.H1.Prefix = " "
 	style.H2.Prefix = ""
 	style.H3.Prefix = ""
-	style.H4.Prefix = ""
-	style.H5.Prefix = ""
-	style.H6.Prefix = ""
+	style.H3.Color = stringPtr("105")
 
 	mr, ok := selected.(mrListItem)
 	if !ok {
@@ -483,6 +504,8 @@ func (m model) viewList() string {
 	sidebar := sidebarStyle.
 		Width(sidebarWidth).
 		Height(m.height - 4).
+		PaddingTop(1).
+		PaddingBottom(1).
 		Render(sidebarContent)
 
 	// Render content
@@ -495,7 +518,7 @@ func (m model) viewList() string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	// Help footer (centered)
-	helpText := "↓/↑/j/k: nav • space: choose • enter: proceed • o: open • r: reload • /: commands • Ctrl+c: quit"
+	helpText := "j/k/g/G: nav • space: select • enter: proceed • o: open • r: reload • /: commands"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, main, help)

@@ -14,17 +14,23 @@ var (
 
 	projectItemSelectedStyle = lipgloss.NewStyle().
 					Bold(true).
-					Foreground(lipgloss.Color("170"))
+					Foreground(lipgloss.Color("105"))
 
 	projectItemActiveStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("42"))
+				Foreground(lipgloss.Color("220"))
 
 	projectItemActiveSelectedStyle = lipgloss.NewStyle().
 					Bold(true).
-					Foreground(lipgloss.Color("42"))
+					Foreground(lipgloss.Color("220"))
 
-	projectFilterStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("205"))
+	projectFilterPromptStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("105"))
+
+	projectFilterPlaceholderStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("241"))
+
+	projectFilterTextStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("255"))
 
 	projectSelectorStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
@@ -134,11 +140,12 @@ func (m model) overlayProjectSelector(background string) string {
 		b.WriteString("\n")
 	} else {
 		// Show filter input
-		filterDisplay := m.projectFilter
-		if filterDisplay == "" {
-			filterDisplay = "type to filter..."
+		b.WriteString(projectFilterPromptStyle.Render("> "))
+		if m.projectFilter == "" {
+			b.WriteString(projectFilterPlaceholderStyle.Render("type to filter..."))
+		} else {
+			b.WriteString(projectFilterTextStyle.Render(m.projectFilter))
 		}
-		b.WriteString(projectFilterStyle.Render("> " + filterDisplay))
 		b.WriteString("\n\n")
 
 		// Show filtered projects
@@ -199,16 +206,16 @@ func (m model) overlayProjectSelector(background string) string {
 		// Help footer
 		b.WriteString("\n")
 		if m.selectedProject == nil {
-			b.WriteString(helpStyle.Render("↓/↑/C+n/p: navigate • enter: select (reqired)"))
+			b.WriteString(helpStyle.Render("C+n/p: nav • enter: select (reqired)"))
 		} else {
-			b.WriteString(helpStyle.Render("↓/↑/C+n/p: navigate • enter: select • esc/C+q: close"))
+			b.WriteString(helpStyle.Render("C+n/p: nav • enter: select • esc/C+q: close"))
 		}
 	}
 
 	config := ModalConfig{
-		Width:    ModalWidth{Value: 70, Percent: true},
-		MinWidth: 50,
-		MaxWidth: 90,
+		Width:    ModalWidth{Value: 50, Percent: true},
+		MinWidth: 30,
+		MaxWidth: 70,
 		Style:    projectSelectorStyle,
 	}
 

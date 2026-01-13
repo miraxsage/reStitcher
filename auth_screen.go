@@ -30,22 +30,28 @@ func initAuthInputs() []textinput.Model {
 	// GitLab URL input
 	inputs[0] = textinput.New()
 	inputs[0].Placeholder = "https://gitlab.com"
+	inputs[0].PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	inputs[0].Focus()
 	inputs[0].CharLimit = 256
 	inputs[0].Width = 40
+	inputs[0].Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("105"))
 
 	// Email input
 	inputs[1] = textinput.New()
 	inputs[1].Placeholder = "user@example.com"
+	inputs[1].PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	inputs[1].CharLimit = 256
 	inputs[1].Width = 40
+	inputs[1].Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("105"))
 
 	// Token input
 	inputs[2] = textinput.New()
-	inputs[2].Placeholder = "glpat-xxxxxxxxxxxxxxxxxxxx"
+	inputs[2].Placeholder = "glpat-... (requires api scope)"
+	inputs[2].PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	inputs[2].CharLimit = 256
 	inputs[2].Width = 40
 	inputs[2].EchoMode = textinput.EchoPassword
+	inputs[2].Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("105"))
 
 	return inputs
 }
@@ -165,19 +171,27 @@ func (m model) viewAuth() string {
 	}
 
 	// Submit button
-	submitStyle := lipgloss.NewStyle().
-		Padding(0, 2).
-		Background(lipgloss.Color("62")).
-		Foreground(lipgloss.Color("230"))
-
+	var submitStyle lipgloss.Style
 	if m.focusIndex == len(m.inputs) {
-		submitStyle = submitStyle.
+		// Focused: green background, bold
+		submitStyle = lipgloss.NewStyle().
+			Padding(0, 2).
 			Background(lipgloss.Color("62")).
 			Foreground(lipgloss.Color("255")).
 			Bold(true)
+	} else {
+		// Unfocused: gray background (same as release screen buttons)
+		submitStyle = lipgloss.NewStyle().
+			Padding(0, 2).
+			Background(lipgloss.Color("240")).
+			Foreground(lipgloss.Color("249"))
 	}
 
-	formBuilder.WriteString(submitStyle.Render("Submit"))
+	submitButton := lipgloss.NewStyle().
+		Width(40).
+		Align(lipgloss.Center).
+		Render(submitStyle.Render("Submit"))
+	formBuilder.WriteString(submitButton)
 
 	// Get the regular form box to measure exact dimensions
 	regularFormContent := formStyle.Render(formBuilder.String())
@@ -238,7 +252,7 @@ func (m model) viewAuth() string {
 	// Help footer (centered) - hide during loading
 	var help string
 	if !m.loading {
-		helpText := "tab/↓/↑: navigate • enter: submit/next • ctrl+c: quit"
+		helpText := "tab/↓/↑: nav • enter: submit/next • ctrl+c: quit"
 		help = helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 	}
 

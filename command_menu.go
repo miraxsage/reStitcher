@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -115,15 +116,21 @@ func (m model) overlayCommandMenu(background string) string {
 			itemStyle = commandItemStyle
 		}
 
-		b.WriteString(itemStyle.Render(prefix+cmd.name) + commandDescStyle.Render(" - "+cmd.desc))
+		b.WriteString(itemStyle.Render(fmt.Sprintf("%s%-8s", prefix, cmd.name)) + commandDescStyle.Render(" - "+cmd.desc))
 		b.WriteString("\n")
 	}
 
 	// Help footer
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("↓/↑/j/k: navigate • enter: select • q/esc: close"))
+	b.WriteString(helpStyle.Render("j/k: nav • enter: select • q/esc: close"))
 
-	menuContent := commandMenuStyle.Render(b.String())
+	config := ModalConfig{
+		Width:    ModalWidth{Value: 50, Percent: true},
+		MinWidth: 30,
+		MaxWidth: 70,
+		Style:    commandMenuStyle,
+	}
+	menuContent := renderModal(b.String(), config, m.width)
 
 	// Overlay menu on top of background (centered)
 	return placeOverlayCenter(menuContent, background, m.width, m.height)

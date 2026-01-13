@@ -86,7 +86,8 @@ type model struct {
 	releaseExecutor                  *GitExecutor
 	showAbortConfirm                 bool
 	abortConfirmIndex                int  // 0 = Yes, 1 = Cancel
-	releaseViewportFocus             bool // true when viewport is focused
+	showDeleteRemoteConfirm          bool // Second confirmation for deleting remote branch
+	deleteRemoteConfirmIndex         int  // 0 = Yes, 1 = No
 	releaseNeedEmptyLineAfterCommand bool // Flag to add empty line after command output if needed
 }
 
@@ -103,9 +104,11 @@ func NewModel() model {
 	ta.SetHeight(6)
 	ta.SetWidth(50)
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	ta.FocusedStyle.Base = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62"))
+	ta.BlurredStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	ta.BlurredStyle.Base = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("240"))
@@ -123,6 +126,7 @@ func NewModel() model {
 			{Name: "STAGE", BranchName: "stable"},
 			{Name: "PROD", BranchName: "master"},
 		},
+		selectedMRs: make(map[int]bool),
 	}
 }
 

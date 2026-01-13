@@ -23,12 +23,13 @@ var (
 func initVersionInput() textinput.Model {
 	ti := textinput.New()
 	ti.Placeholder = "e.g. 1.2.3"
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	ti.Focus()
 	ti.CharLimit = 20
 	ti.Width = 20
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("105"))
 	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
-	ti.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("105"))
 	return ti
 }
 
@@ -187,7 +188,7 @@ func (m model) renderMRsSidebarSection(width int, contentHeight int, branches []
 	var sb strings.Builder
 
 	title := fmt.Sprintf(" MRs to release (%d) ", len(branches))
-	sb.WriteString(" " + envTitleStepStyle.Render("[1]") +
+	sb.WriteString(envTitleStepStyle.Render("[1]") +
 		envTitleStyle.Render(title))
 	sb.WriteString("\n\n")
 
@@ -236,7 +237,7 @@ func (m model) renderMRsSidebarSection(width int, contentHeight int, branches []
 func (m model) renderEnvSidebarSection(width int, contentHeight int) string {
 	var sb strings.Builder
 
-	sb.WriteString(" " + envTitleStepStyle.Render("[2]") +
+	sb.WriteString(envTitleStepStyle.Render("[2]") +
 		envTitleStyle.Render(" Environment "))
 	sb.WriteString("\n\n")
 
@@ -250,7 +251,7 @@ func (m model) renderEnvSidebarSection(width int, contentHeight int) string {
 	}
 	if envName != "" {
 		envStyle := getEnvHintStyle(envName)
-		sb.WriteString(" " + envStyle.Render(" "+envName+" "))
+		sb.WriteString(envStyle.Render(" " + envName + " "))
 	}
 
 	// Wrap in bordered box (Height is content height, border adds 2 more lines)

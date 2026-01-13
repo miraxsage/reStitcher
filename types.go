@@ -171,7 +171,10 @@ type ReleaseState struct {
 
 	// Error info
 	LastError   *ReleaseError `json:"last_error,omitempty"`
-	ErrorOutput string        `json:"error_output,omitempty"` // Last 500 lines of output on error
+	ErrorOutput string        `json:"error_output,omitempty"` // Last 5000 lines of terminal output on error
+
+	// Terminal output (saved after each operation for resume)
+	TerminalOutput []string `json:"terminal_output,omitempty"`
 
 	// Created MR info (after step 6)
 	CreatedMRURL string `json:"created_mr_url,omitempty"`

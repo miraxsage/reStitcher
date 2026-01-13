@@ -16,44 +16,56 @@ const (
 
 // Styles for release screen
 var (
-	releaseLoaderStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("42"))
-
 	releasePercentStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("255"))
+				Foreground(lipgloss.Color("7"))
 
 	releaseSuspendedStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("214"))
-
-	releaseSuccessBlueStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("75"))
+				Foreground(lipgloss.Color("236")).
+				Background(lipgloss.Color("220")).
+				PaddingLeft(1).
+				PaddingRight(1)
 
 	releaseSuccessGreenStyle = lipgloss.NewStyle().
-					Foreground(lipgloss.Color("34"))
+					Background(lipgloss.Color("29")).
+					Foreground(lipgloss.Color("255"))
 
 	releaseConflictStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("9")).
+				Foreground(lipgloss.Color("255")).
+				Background(lipgloss.Color("196")).
+				PaddingLeft(1).
+				PaddingRight(1).
 				Bold(true)
 
 	releaseErrorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("9")).
+				Foreground(lipgloss.Color("255")).
+				Background(lipgloss.Color("196")).
+				PaddingLeft(1).
+				PaddingRight(1).
 				Bold(true)
 
 	releaseOrangeStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("214"))
+				Foreground(lipgloss.Color("220"))
+
+	releaseActiveTextStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("105"))
+
+	getReleaseEnvStyle = func(env string) lipgloss.Style {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(getEnvBranchColor(env)))
+	}
 
 	releaseTerminalStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("240"))
 
-	releaseTerminalFocusedStyle = lipgloss.NewStyle().
-					Border(lipgloss.RoundedBorder()).
-					BorderForeground(lipgloss.Color("62"))
-
 	releaseButtonInactiveStyle = lipgloss.NewStyle().
 					Foreground(lipgloss.Color("255")).
 					Background(lipgloss.Color("240")).
 					Padding(0, 2)
+
+	releaseTextActiveStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("105"))
 
 	releaseButtonActiveStyle = lipgloss.NewStyle().
 					Bold(true).
@@ -81,7 +93,8 @@ func (m *model) initReleaseScreen() {
 	contentWidth := m.width - sidebarW - 4
 	contentHeight := m.height - 4
 
-	// Status takes ~4 lines, buttons take ~2 lines, horizontal line ~1, padding ~3, terminal border ~1
+	// Status 3 lines + top padding 1 + empty after status 1 + horizontal line 1 + border 2 + empty before buttons 1 + buttons 1 = 10
+	// Use -11 to leave 1 empty line at the bottom
 	viewportHeight := contentHeight - 11
 	if viewportHeight < 5 {
 		viewportHeight = 5
@@ -103,8 +116,8 @@ func (m *model) updateReleaseButtons() {
 
 	state := m.releaseState
 
-	// Abort is available until push starts (step 6)
-	if state.CurrentStep < ReleaseStepPushAndCreateMR && state.CurrentStep != ReleaseStepComplete {
+	// Abort is available until complete (including during push step for error recovery)
+	if state.CurrentStep != ReleaseStepComplete {
 		m.releaseButtons = append(m.releaseButtons, ReleaseButtonAbort)
 	}
 
@@ -163,17 +176,67 @@ func (m *model) appendReleaseOutput(line string) {
 
 // updateRelease handles key events on the release screen
 func (m model) updateRelease(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle delete remote branch confirmation modal (second step after abort confirm)
+	if m.showDeleteRemoteConfirm {
+		switch msg.String() {
+		case "y", "Y":
+			m.showDeleteRemoteConfirm = false
+			m.deleteRemoteConfirmIndex = 0
+			return m.abortReleaseWithRemoteDeletion(true)
+		case "enter":
+			m.showDeleteRemoteConfirm = false
+			deleteRemote := m.deleteRemoteConfirmIndex == 0
+			m.deleteRemoteConfirmIndex = 0
+			return m.abortReleaseWithRemoteDeletion(deleteRemote)
+		case "n", "N":
+			m.showDeleteRemoteConfirm = false
+			m.deleteRemoteConfirmIndex = 0
+			return m.abortReleaseWithRemoteDeletion(false)
+		case "esc":
+			m.showDeleteRemoteConfirm = false
+			m.deleteRemoteConfirmIndex = 0
+			return m, nil
+		case "tab", "right", "l":
+			if m.deleteRemoteConfirmIndex < 1 {
+				m.deleteRemoteConfirmIndex++
+			} else {
+				m.deleteRemoteConfirmIndex = 0
+			}
+			return m, nil
+		case "shift+tab", "left", "h":
+			if m.deleteRemoteConfirmIndex > 0 {
+				m.deleteRemoteConfirmIndex--
+			} else {
+				m.deleteRemoteConfirmIndex = 1
+			}
+			return m, nil
+		}
+		return m, nil
+	}
+
 	// Handle abort confirmation modal
 	if m.showAbortConfirm {
 		switch msg.String() {
 		case "y", "Y":
 			m.showAbortConfirm = false
 			m.abortConfirmIndex = 0
+			// If we're at or past push step, ask about remote branch deletion
+			if m.releaseState != nil && m.releaseState.CurrentStep >= ReleaseStepPushAndCreateMR {
+				m.showDeleteRemoteConfirm = true
+				m.deleteRemoteConfirmIndex = 0
+				return m, nil
+			}
 			return m.abortRelease()
 		case "enter":
 			m.showAbortConfirm = false
 			if m.abortConfirmIndex == 0 {
 				m.abortConfirmIndex = 0
+				// If we're at or past push step, ask about remote branch deletion
+				if m.releaseState != nil && m.releaseState.CurrentStep >= ReleaseStepPushAndCreateMR {
+					m.showDeleteRemoteConfirm = true
+					m.deleteRemoteConfirmIndex = 0
+					return m, nil
+				}
 				return m.abortRelease()
 			}
 			m.abortConfirmIndex = 0
@@ -214,34 +277,20 @@ func (m model) updateRelease(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		// Cycle through: buttons -> viewport -> buttons
-		if m.releaseViewportFocus {
-			// From viewport, go to first button
-			m.releaseViewportFocus = false
-			m.releaseButtonIndex = 0
-		} else if m.releaseButtonIndex < len(m.releaseButtons)-1 {
-			// Move to next button
+		// Cycle through buttons
+		if m.releaseButtonIndex < len(m.releaseButtons)-1 {
 			m.releaseButtonIndex++
 		} else {
-			// From last button, go to viewport
-			m.releaseViewportFocus = true
+			m.releaseButtonIndex = 0
 		}
 		return m, nil
 
 	case "shift+tab":
-		// Cycle in reverse: viewport -> buttons -> viewport
-		if m.releaseViewportFocus {
-			// From viewport, go to last button
-			m.releaseViewportFocus = false
-			if len(m.releaseButtons) > 0 {
-				m.releaseButtonIndex = len(m.releaseButtons) - 1
-			}
-		} else if m.releaseButtonIndex > 0 {
-			// Move to previous button
+		// Cycle through buttons in reverse
+		if m.releaseButtonIndex > 0 {
 			m.releaseButtonIndex--
-		} else {
-			// From first button, go to viewport
-			m.releaseViewportFocus = true
+		} else if len(m.releaseButtons) > 0 {
+			m.releaseButtonIndex = len(m.releaseButtons) - 1
 		}
 		return m, nil
 
@@ -256,6 +305,14 @@ func (m model) updateRelease(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.releaseViewport.LineDown(1)
 		return m, nil
 
+	case "d", "pgdown":
+		m.releaseViewport.HalfViewDown()
+		return m, nil
+
+	case "u", "pgup":
+		m.releaseViewport.HalfViewUp()
+		return m, nil
+
 	case "g":
 		m.releaseViewport.GotoTop()
 		return m, nil
@@ -264,12 +321,11 @@ func (m model) updateRelease(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.releaseViewport.GotoBottom()
 		return m, nil
 
-	case "pgup":
-		m.releaseViewport.HalfViewUp()
-		return m, nil
-
-	case "pgdown":
-		m.releaseViewport.HalfViewDown()
+	case "o":
+		// Open MR URL if available
+		if m.releaseState != nil && m.releaseState.CreatedMRURL != "" {
+			return m, openInBrowser(m.releaseState.CreatedMRURL)
+		}
 		return m, nil
 	}
 
@@ -303,7 +359,7 @@ func (m model) executeReleaseButton() (tea.Model, tea.Cmd) {
 
 	case ReleaseButtonOpen:
 		if m.releaseState != nil && m.releaseState.CreatedMRURL != "" {
-			openInBrowser(m.releaseState.CreatedMRURL)
+			return m, openInBrowser(m.releaseState.CreatedMRURL)
 		}
 	}
 
@@ -335,7 +391,12 @@ func (m model) viewRelease() string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	// Help footer
-	helpText := "←/→/tab: buttons • ↓/↑/j/k/g/G: scroll • enter: action • /: commands • Ctrl+c: quit"
+	helpText := "tab: focus • j/k/d/u/g/G: scroll • enter: action"
+	// Add "o: open" hint when MR URL is available
+	if m.releaseState != nil && m.releaseState.CreatedMRURL != "" {
+		helpText += " • o: open"
+	}
+	helpText += " • /: commands"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	view := lipgloss.JoinVertical(lipgloss.Left, main, help)
@@ -345,6 +406,11 @@ func (m model) viewRelease() string {
 		view = m.overlayAbortConfirm(view)
 	}
 
+	// Overlay delete remote branch confirmation if shown
+	if m.showDeleteRemoteConfirm {
+		view = m.overlayDeleteRemoteConfirm(view)
+	}
+
 	return view
 }
 
@@ -352,14 +418,14 @@ func (m model) viewRelease() string {
 func (m model) renderReleaseContent(width, height int) string {
 	var sb strings.Builder
 
-	// Status section (always 3 lines for consistent layout)
+	// Status section (minimum 3 lines, but can expand)
 	sb.WriteString("\n")
 	status := m.renderReleaseStatus(width)
-	// Pad status to always be 3 lines
-	lines := strings.Count(status, "\n") + 1
-	for lines < 3 {
+	statusLines := strings.Count(status, "\n") + 1
+	// Pad status to minimum 3 lines
+	for statusLines < 3 {
 		status += "\n"
-		lines++
+		statusLines++
 	}
 	sb.WriteString(status)
 	sb.WriteString("\n\n")
@@ -369,14 +435,20 @@ func (m model) renderReleaseContent(width, height int) string {
 	sb.WriteString(line)
 	sb.WriteString("\n")
 
-	// Terminal output viewport
-	viewportContent := m.releaseViewport.View()
-	// Wrap with appropriate border style based on focus
-	if m.releaseViewportFocus {
-		sb.WriteString(releaseTerminalFocusedStyle.Render(viewportContent))
-	} else {
-		sb.WriteString(releaseTerminalStyle.Render(viewportContent))
+	// Calculate dynamic viewport height based on status height
+	// Base calculation: height - 11 (status 3 + top padding 1 + empty after status 1 + line 1 + border 2 + empty before buttons 1 + buttons 1 = 10, plus 1 empty at bottom)
+	// If status takes more than 3 lines, shrink viewport accordingly
+	extraStatusLines := statusLines - 3
+	viewportHeight := height - 11 - extraStatusLines
+	if viewportHeight < 5 {
+		viewportHeight = 5
 	}
+
+	// Create a viewport with dynamic height for this render
+	vp := m.releaseViewport
+	vp.Height = viewportHeight
+	viewportContent := vp.View()
+	sb.WriteString(releaseTerminalStyle.Render(viewportContent))
 
 	// One empty line before buttons
 	sb.WriteString("\n\n")
@@ -405,9 +477,9 @@ func (m model) renderReleaseStatus(width int) string {
 	if totalMRs > 0 {
 		percentage = (mergedMRs * 100) / totalMRs
 	}
-	// After all merges, show 99% until complete
+	// After all merges, show 95% until complete
 	if state.CurrentStep >= ReleaseStepCheckoutEnv && state.CurrentStep < ReleaseStepComplete {
-		percentage = 99
+		percentage = 95
 	}
 	if state.CurrentStep == ReleaseStepComplete {
 		percentage = 100
@@ -448,7 +520,7 @@ func (m model) renderReleaseStatus(width int) string {
 	case ReleaseStepCheckoutRoot:
 		status = fmt.Sprintf("%s %s %s\nCreating root release branch...",
 			m.spinner.View(),
-			releaseLoaderStyle.Render("RELEASING"),
+			getReleaseEnvStyle(state.Environment.Name).Render("RELEASING"),
 			releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)))
 
 	case ReleaseStepMergeBranches:
@@ -458,7 +530,7 @@ func (m model) renderReleaseStatus(width int) string {
 		}
 		status = fmt.Sprintf("%s %s %s\nMerging %s MR of %d: %s",
 			m.spinner.View(),
-			releaseLoaderStyle.Render("RELEASING"),
+			getReleaseEnvStyle(state.Environment.Name).Render("RELEASING"),
 			releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)),
 			ordinal(state.CurrentMRIndex+1),
 			totalMRs,
@@ -467,37 +539,41 @@ func (m model) renderReleaseStatus(width int) string {
 	case ReleaseStepCheckoutEnv:
 		status = fmt.Sprintf("%s %s %s\nCreating environment branch for %s...",
 			m.spinner.View(),
-			releaseLoaderStyle.Render("RELEASING"),
+			getReleaseEnvStyle(state.Environment.Name).Render("RELEASING"),
 			releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)),
 			state.Environment.Name)
 
 	case ReleaseStepCopyContent:
 		status = fmt.Sprintf("%s %s %s\nCopying content from root branch...",
 			m.spinner.View(),
-			releaseLoaderStyle.Render("RELEASING"),
+			getReleaseEnvStyle(state.Environment.Name).Render("RELEASING"),
 			releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)))
 
 	case ReleaseStepCommit:
 		status = fmt.Sprintf("%s %s %s\nCreating release commit...",
 			m.spinner.View(),
-			releaseLoaderStyle.Render("RELEASING"),
+			getReleaseEnvStyle(state.Environment.Name).Render("RELEASING"),
 			releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)))
 
 	case ReleaseStepWaitForMR:
-		status = fmt.Sprintf("Release is %s composed\nNow do final step - create its merge request to %s\nPress \"Create MR to %s\"",
-			releaseSuccessBlueStyle.Render("SUCCESSFULLY"),
-			state.Environment.Name,
-			state.Environment.Name)
+		status = fmt.Sprintf("Release is %s\nNow do final step - create its merge request to %s\nPress %s",
+			releaseSuccessGreenStyle.Render(" SUCCESSFULLY COMPOSED "),
+			getReleaseEnvStyle(state.Environment.Name).Render(state.Environment.Name),
+			releaseTextActiveStyle.Render("Create MR to "+state.Environment.Name),
+		)
 
 	case ReleaseStepPushAndCreateMR:
 		status = fmt.Sprintf("%s %s %s\nPushing branch and creating merge request...",
 			m.spinner.View(),
-			releaseLoaderStyle.Render("RELEASING"),
+			getReleaseEnvStyle(state.Environment.Name).Render("RELEASING"),
 			releasePercentStyle.Render("99%"))
 
 	case ReleaseStepComplete:
-		status = fmt.Sprintf("Release is %s completed\nPress \"Open\" to open MR link, or press\n\"Complete\" to exit this release screen",
-			releaseSuccessGreenStyle.Render("SUCCESSFULLY"))
+		status = fmt.Sprintf("Release is %s\nPress %s to open MR link, or press\n%s to exit this release screen",
+			releaseSuccessGreenStyle.Render("SUCCESSFULLY COMPLETED"),
+			releaseActiveTextStyle.Render("Open"),
+			releaseActiveTextStyle.Render("Complete"),
+		)
 
 	default:
 		status = "Preparing release..."
@@ -537,8 +613,7 @@ func (m model) renderReleaseButtons(width int) string {
 		var style lipgloss.Style
 		var label string
 
-		// When viewport is focused, all buttons are inactive
-		isFocused := i == m.releaseButtonIndex && !m.releaseViewportFocus
+		isFocused := i == m.releaseButtonIndex
 
 		switch btn {
 		case ReleaseButtonAbort:
@@ -608,6 +683,37 @@ func (m model) overlayAbortConfirm(background string) string {
 		cancelBtn = releaseButtonActiveStyle.Render("Cancel")
 	}
 	sb.WriteString(fmt.Sprintf("        %s        %s", yesBtn, cancelBtn))
+
+	config := ModalConfig{
+		Width:    ModalWidth{Value: 50, Percent: false},
+		MinWidth: 40,
+		MaxWidth: 60,
+		Style:    errorBoxStyle,
+	}
+
+	modal := renderModal(sb.String(), config, m.width)
+	return placeOverlayCenter(modal, background, m.width, m.height)
+}
+
+// overlayDeleteRemoteConfirm renders the delete remote branch confirmation modal
+func (m model) overlayDeleteRemoteConfirm(background string) string {
+	var sb strings.Builder
+
+	title := errorTitleStyle.Render("Delete Remote Branch?")
+	sb.WriteString(title)
+	sb.WriteString("\n\n")
+	sb.WriteString("The release branch was already pushed to remote.\n")
+	sb.WriteString("Do you want to delete it from origin?\n\n")
+
+	var yesBtn, noBtn string
+	if m.deleteRemoteConfirmIndex == 0 {
+		yesBtn = releaseButtonDangerStyle.Render("Yes, delete")
+		noBtn = releaseButtonInactiveStyle.Render("No, keep it")
+	} else {
+		yesBtn = releaseButtonInactiveStyle.Render("Yes, delete")
+		noBtn = releaseButtonActiveStyle.Render("No, keep it")
+	}
+	sb.WriteString(fmt.Sprintf("     %s     %s", yesBtn, noBtn))
 
 	config := ModalConfig{
 		Width:    ModalWidth{Value: 50, Percent: false},
@@ -853,7 +959,15 @@ func (m *model) handleReleaseStepComplete(msg releaseStepCompleteMsg) (tea.Model
 			Step:    msg.step,
 			Message: msg.err.Error(),
 		}
-		state.ErrorOutput = GetLast500Lines(msg.output)
+		// Save last 5000 lines of terminal output (buffer + current screen)
+		fullOutput := strings.Join(m.releaseOutputBuffer, "\n")
+		if m.releaseCurrentScreen != "" {
+			fullOutput += "\n" + m.releaseCurrentScreen
+		}
+		state.ErrorOutput = GetLastNLines(fullOutput, 5000)
+		// Save terminal output buffer for resume
+		state.TerminalOutput = make([]string, len(m.releaseOutputBuffer))
+		copy(state.TerminalOutput, m.releaseOutputBuffer)
 		SaveReleaseState(state)
 		m.updateReleaseButtons()
 		return m, nil
@@ -906,6 +1020,9 @@ func (m *model) handleReleaseStepComplete(msg releaseStepCompleteMsg) (tea.Model
 	case ReleaseStepPushAndCreateMR:
 		// Now create the MR via GitLab API
 		state.CurrentStep = ReleaseStepComplete
+		// Save terminal output buffer for resume
+		state.TerminalOutput = make([]string, len(m.releaseOutputBuffer))
+		copy(state.TerminalOutput, m.releaseOutputBuffer)
 		SaveReleaseState(state)
 		m.updateReleaseButtons()
 
@@ -913,11 +1030,17 @@ func (m *model) handleReleaseStepComplete(msg releaseStepCompleteMsg) (tea.Model
 		return m, m.createGitLabMR()
 
 	default:
+		// Save terminal output buffer for resume
+		state.TerminalOutput = make([]string, len(m.releaseOutputBuffer))
+		copy(state.TerminalOutput, m.releaseOutputBuffer)
 		SaveReleaseState(state)
 		m.updateReleaseButtons()
 		return m, nil
 	}
 
+	// Save terminal output buffer for resume
+	state.TerminalOutput = make([]string, len(m.releaseOutputBuffer))
+	copy(state.TerminalOutput, m.releaseOutputBuffer)
 	SaveReleaseState(state)
 	m.updateReleaseButtons()
 
@@ -925,6 +1048,9 @@ func (m *model) handleReleaseStepComplete(msg releaseStepCompleteMsg) (tea.Model
 	if nextStep != ReleaseStepWaitForMR && nextStep != ReleaseStepComplete {
 		m.releaseRunning = true
 		nextCmd = tea.Batch(m.spinner.Tick, m.executeReleaseStep(nextStep))
+	} else if nextStep == ReleaseStepWaitForMR {
+		// Focus on "Create MR" button (index 1: Abort=0, CreateMR=1)
+		m.releaseButtonIndex = 1
 	}
 
 	return m, nextCmd
@@ -970,15 +1096,33 @@ func (m *model) handleMRCreated(msg releaseMRCreatedMsg) (tea.Model, tea.Cmd) {
 		}
 		m.releaseState.CurrentStep = ReleaseStepPushAndCreateMR
 		m.appendReleaseOutput(fmt.Sprintf("ERROR: Failed to create MR: %v", msg.err))
+		// Save state for retry
+		m.releaseState.TerminalOutput = make([]string, len(m.releaseOutputBuffer))
+		copy(m.releaseState.TerminalOutput, m.releaseOutputBuffer)
+		SaveReleaseState(m.releaseState)
 	} else {
 		m.releaseState.CreatedMRURL = msg.url
 		m.releaseState.CreatedMRIID = msg.iid
 		m.releaseState.CurrentStep = ReleaseStepComplete
 		m.appendReleaseOutput("")
 		m.appendReleaseOutput(fmt.Sprintf("Merge request created: %s", msg.url))
+
+		// MR created successfully - clear release.json so Ctrl+C goes to MRs list
+		ClearReleaseState()
+
+		// Reset selected MRs for next release
+		m.initListScreen()
+		m.updateListSize()
+
+		// Reset version input
+		m.versionInput.SetValue("")
+		m.versionError = ""
+
+		// Reset environment selection
+		m.selectedEnv = nil
+		m.envSelectIndex = 0
 	}
 
-	SaveReleaseState(m.releaseState)
 	m.updateReleaseButtons()
 	return m, nil
 }
@@ -1033,10 +1177,75 @@ func (m model) abortRelease() (tea.Model, tea.Cmd) {
 	m.releaseCurrentScreen = ""
 	m.releaseRunning = false
 
-	// Go back to main screen
-	m.screen = screenMain
+	// Reset selections for next release
+	(&m).initListScreen()
+	(&m).updateListSize()
+	m.selectedEnv = nil
+	m.envSelectIndex = 0
+	m.versionInput.SetValue("")
+	m.versionError = ""
 
-	return m, nil
+	// Go back to main screen and reload MRs
+	m.screen = screenMain
+	m.loadingMRs = true
+
+	return m, tea.Batch(m.spinner.Tick, m.fetchMRs())
+}
+
+// abortReleaseWithRemoteDeletion cleans up and aborts the release, optionally deleting remote branch
+func (m model) abortReleaseWithRemoteDeletion(deleteRemote bool) (tea.Model, tea.Cmd) {
+	if m.releaseState != nil {
+		workDir := m.releaseState.WorkDir
+		version := m.releaseState.Version
+		envBranch := m.releaseState.Environment.BranchName
+
+		// Kill any running process
+		if m.releaseExecutor != nil {
+			m.releaseExecutor.Kill()
+			m.releaseExecutor.Close()
+			m.releaseExecutor = nil
+		}
+
+		        // Delete remote branch if requested
+				if deleteRemote {
+					cmds := NewReleaseCommands(workDir, version, &m.releaseState.Environment, nil, nil)
+					remoteBranch := cmds.EnvReleaseBranch()
+					deleteCmd := fmt.Sprintf("cd %q && git push origin --delete %s", workDir, remoteBranch)
+					exec := NewGitExecutor(workDir, nil)
+					exec.RunCommand(deleteCmd)
+					exec.Close()
+				}
+		
+				// Reset to clean state
+				cmd := fmt.Sprintf("cd %q && git reset --hard && git checkout root", workDir)
+				exec := NewGitExecutor(workDir, nil)
+				exec.RunCommand(cmd)
+				exec.Close()
+		
+				// Delete created branches
+				DeleteLocalBranches(workDir, version, envBranch)
+			}
+		
+			// Clear state
+			ClearReleaseState()
+			m.releaseState = nil
+			m.releaseOutputBuffer = nil
+			m.releaseCurrentScreen = ""
+			m.releaseRunning = false
+		
+			// Reset selections for next release
+			(&m).initListScreen()
+			(&m).updateListSize()
+			m.selectedEnv = nil
+			m.envSelectIndex = 0
+			m.versionInput.SetValue("")
+			m.versionError = ""
+
+	// Go back to main screen and reload MRs
+	m.screen = screenMain
+	m.loadingMRs = true
+
+	return m, tea.Batch(m.spinner.Tick, m.fetchMRs())
 }
 
 // startCreateMR initiates the push and MR creation
@@ -1061,29 +1270,38 @@ func (m model) completeRelease() (tea.Model, tea.Cmd) {
 	m.releaseCurrentScreen = ""
 	m.releaseRunning = false
 
-	// Go back to main screen
-	m.screen = screenMain
+	// Reset selections for next release
+	(&m).initListScreen()
+	(&m).updateListSize()
+	m.selectedEnv = nil
+	m.envSelectIndex = 0
+	m.versionInput.SetValue("")
+	m.versionError = ""
 
-	return m, nil
+	// Go back to main screen and reload MRs
+	m.screen = screenMain
+	m.loadingMRs = true
+
+	return m, tea.Batch(m.spinner.Tick, m.fetchMRs())
 }
 
 // resumeRelease resumes from saved release state
 func (m *model) resumeRelease(state *ReleaseState) tea.Cmd {
 	m.releaseState = state
 	m.screen = screenRelease
-	m.releaseOutputBuffer = []string{}
 	m.releaseCurrentScreen = ""
 
-	// Add info about resuming
-	m.appendReleaseOutput("Resuming previous release...")
-	m.appendReleaseOutput("")
-
-	// If there was an error, show it
-	if state.ErrorOutput != "" {
+	// Restore saved terminal output
+	if len(state.TerminalOutput) > 0 {
+		m.releaseOutputBuffer = make([]string, len(state.TerminalOutput))
+		copy(m.releaseOutputBuffer, state.TerminalOutput)
+	} else if state.ErrorOutput != "" {
+		// Fallback: if no terminal output saved but there's error output, show it
+		m.releaseOutputBuffer = []string{"Resuming previous release...", ""}
 		lines := strings.Split(state.ErrorOutput, "\n")
-		for _, line := range lines {
-			m.appendReleaseOutput(line)
-		}
+		m.releaseOutputBuffer = append(m.releaseOutputBuffer, lines...)
+	} else {
+		m.releaseOutputBuffer = []string{}
 	}
 
 	m.initReleaseScreen()
@@ -1095,7 +1313,12 @@ func (m *model) resumeRelease(state *ReleaseState) tea.Cmd {
 	}
 
 	// Otherwise continue from current step
-	if state.CurrentStep == ReleaseStepWaitForMR || state.CurrentStep == ReleaseStepComplete {
+	if state.CurrentStep == ReleaseStepWaitForMR {
+		// Focus on "Create MR" button (index 1: Abort=0, CreateMR=1)
+		m.releaseButtonIndex = 1
+		return nil
+	}
+	if state.CurrentStep == ReleaseStepComplete {
 		return nil
 	}
 
