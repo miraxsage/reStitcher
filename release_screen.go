@@ -500,17 +500,27 @@ func (m model) renderReleaseStatus(width int) string {
 			errorType = fmt.Sprintf("%s merge %s.",
 				releaseOrangeStyle.Render(branchName),
 				releaseConflictStyle.Render("CONFLICT"))
-			status = fmt.Sprintf("Release is %s on %s because of\n%s\nResolve merge issues and press \"Retry\"",
+			status = fmt.Sprintf("Release is %s on %s because of\n%s\nResolve merge issues and press %s",
 				releaseSuspendedStyle.Render("SUSPENDED"),
 				releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)),
-				errorType)
+				errorType,
+				releaseActiveTextStyle.Render("Retry"),
+			)
 		} else {
 			// General error
-			status = fmt.Sprintf("Release is %s on %s because of\n%s: %s\nResolve issue in terminal below and press \"Retry\"",
+			lastStatusLine := fmt.Sprintf("Resolve issue in terminal below and press %s",
+				releaseActiveTextStyle.Render("Retry"),
+			)
+			if state.LastError.Code == "RELEASE_INTERRUPTED" {
+				lastStatusLine = ""
+			}
+			status = fmt.Sprintf("Release is %s on %s because of\n%s %s\n%s",
 				releaseSuspendedStyle.Render("SUSPENDED"),
 				releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)),
 				releaseErrorStyle.Render("ERROR"),
-				state.LastError.Message)
+				state.LastError.Message,
+				lastStatusLine,
+			)
 		}
 		return status
 	}
@@ -541,7 +551,7 @@ func (m model) renderReleaseStatus(width int) string {
 			m.spinner.View(),
 			getReleaseEnvStyle(state.Environment.Name).Render("RELEASING"),
 			releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)),
-			state.Environment.Name)
+			getReleaseEnvStyle(state.Environment.Name).Render(state.Environment.Name))
 
 	case ReleaseStepCopyContent:
 		status = fmt.Sprintf("%s %s %s\nCopying content from root branch...",
@@ -559,7 +569,7 @@ func (m model) renderReleaseStatus(width int) string {
 		status = fmt.Sprintf("Release is %s\nNow do final step - create its merge request to %s\nPress %s",
 			releaseSuccessGreenStyle.Render(" SUCCESSFULLY COMPOSED "),
 			getReleaseEnvStyle(state.Environment.Name).Render(state.Environment.Name),
-			releaseTextActiveStyle.Render("Create MR to "+state.Environment.Name),
+			releaseTextActiveStyle.Render("Create MR to ")+getReleaseEnvStyle(state.Environment.Name).Render(state.Environment.Name),
 		)
 
 	case ReleaseStepPushAndCreateMR:
@@ -1305,14 +1315,31 @@ func (m *model) resumeRelease(state *ReleaseState) tea.Cmd {
 	}
 
 	m.initReleaseScreen()
+
+	// If step is in progress (not waiting for user action or complete),
+	// mark as interrupted so user must press Retry to continue
+	if state.LastError == nil &&
+		state.CurrentStep != ReleaseStepWaitForMR &&
+		state.CurrentStep != ReleaseStepComplete {
+		state.LastError = &ReleaseError{
+			Step: state.CurrentStep,
+			Code: "RELEASE_INTERRUPTED",
+			Message: fmt.Sprintf("it was interrupted. Press %s to continue.",
+				releaseActiveTextStyle.Render("Retry"),
+			),
+		}
+	}
+
 	m.updateReleaseButtons()
 
-	// If there's an error, wait for retry
+	// If there's an error (including synthetic interrupted error), wait for retry
+	// Focus on Retry button (index 1: Abort=0, Retry=1)
 	if state.LastError != nil {
+		m.releaseButtonIndex = 1
 		return nil
 	}
 
-	// Otherwise continue from current step
+	// Handle user action steps
 	if state.CurrentStep == ReleaseStepWaitForMR {
 		// Focus on "Create MR" button (index 1: Abort=0, CreateMR=1)
 		m.releaseButtonIndex = 1
@@ -1322,8 +1349,7 @@ func (m *model) resumeRelease(state *ReleaseState) tea.Cmd {
 		return nil
 	}
 
-	m.releaseRunning = true
-	return tea.Batch(m.spinner.Tick, m.executeReleaseStep(state.CurrentStep))
+	return nil
 }
 
 // checkExistingRelease checks if there's an in-progress release on startup

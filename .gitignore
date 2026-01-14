@@ -1,12 +1,11 @@
 # Build artifacts
 relix
 *.exe
+dist/
 
 # IDE/Editor
 .idea/
 .vscode/
 *.swp
 *.swo
-
-# Claude Code
 .claude/
