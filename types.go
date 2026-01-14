@@ -137,20 +137,21 @@ type AppConfig struct {
 type ReleaseStep int
 
 const (
-	ReleaseStepIdle ReleaseStep = iota
-	ReleaseStepCheckoutRoot    // Step 1: git checkout root && git pull && git checkout -B release/rpb-{ver}-root
-	ReleaseStepMergeBranches   // Step 2: git merge origin/{branch} for each MR
-	ReleaseStepCheckoutEnv     // Step 3: git checkout {env} && git pull && git checkout -B release/rpb-{ver}-{env}
-	ReleaseStepCopyContent     // Step 4: git rm -rf . && git checkout content && exclude files
-	ReleaseStepCommit          // Step 4b: git add -A && git commit (separate so retry doesn't redo file ops)
-	ReleaseStepWaitForMR       // Step 5: waiting for user to press "Create MR" button
-	ReleaseStepPushAndCreateMR // Step 6: git push && create GitLab MR
-	ReleaseStepComplete        // Done
+	ReleaseStepIdle            ReleaseStep = iota
+	ReleaseStepCheckoutRoot                // Step 1: git checkout root && git pull && git checkout -B release/rpb-{ver}-root
+	ReleaseStepMergeBranches               // Step 2: git merge origin/{branch} for each MR
+	ReleaseStepCheckoutEnv                 // Step 3: git checkout {env} && git pull && git checkout -B release/rpb-{ver}-{env}
+	ReleaseStepCopyContent                 // Step 4: git rm -rf . && git checkout content && exclude files
+	ReleaseStepCommit                      // Step 4b: git add -A && git commit (separate so retry doesn't redo file ops)
+	ReleaseStepWaitForMR                   // Step 5: waiting for user to press "Create MR" button
+	ReleaseStepPushAndCreateMR             // Step 6: git push && create GitLab MR
+	ReleaseStepComplete                    // Done
 )
 
 // ReleaseError holds error details for a failed step
 type ReleaseError struct {
 	Step    ReleaseStep `json:"step"`
+	Code    string      `json:"code"`
 	Message string      `json:"message"`
 }
 
