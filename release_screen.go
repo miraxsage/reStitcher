@@ -114,6 +114,11 @@ func (m *model) updateReleaseButtons() {
 		m.releaseButtons = append(m.releaseButtons, ReleaseButtonCreateMR)
 	}
 
+	// Open is available at step 8 (waiting for root push) when MR URL exists
+	if state.CurrentStep == ReleaseStepWaitForRootPush && state.CreatedMRURL != "" {
+		m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpen)
+	}
+
 	// Push root branches is available at step 8 (waiting for root push) and no error
 	if state.CurrentStep == ReleaseStepWaitForRootPush && state.LastError == nil {
 		m.releaseButtons = append(m.releaseButtons, ReleaseButtonPushRoot)
@@ -555,6 +560,17 @@ func (m model) renderReleaseStatus(width int) string {
 				errorType,
 				releaseActiveTextStyle.Render("Retry"),
 			)
+		} else if state.LastError.Code == "COMMIT_FAILED" {
+			// Commit failed (likely linter error) - tell user to fix in release-root branch
+			cmds := NewReleaseCommandsWithSourceBranch(state.WorkDir, state.Version, &state.Environment, nil, nil, state.SourceBranch, state.SourceBranchIsRemote)
+			status = fmt.Sprintf("Release is %s on %s because of\n%s %s\nFix errors in %s branch, commit them and press %s",
+				releaseSuspendedStyle.Render("SUSPENDED"),
+				releasePercentStyle.Render(fmt.Sprintf("%d%%", percentage)),
+				releaseErrorStyle.Render("ERROR"),
+				state.LastError.Message,
+				releaseOrangeStyle.Render(cmds.ReleaseRootBranch()),
+				releaseActiveTextStyle.Render("Retry"),
+			)
 		} else {
 			// General error
 			lastStatusLine := fmt.Sprintf("Resolve issue in terminal below and press %s",
@@ -959,16 +975,23 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 			output, err = executor.RunCommand(command)
 
 		case ReleaseStepCopyContent:
+			// First, ensure we're on the env-release-branch (needed when retrying after commit failure)
+			envReleaseBranch := cmds.EnvReleaseBranch()
+			checkoutOutput, checkoutErr := executor.RunCommand(fmt.Sprintf("git checkout %s", envReleaseBranch))
+			if checkoutErr != nil {
+				return releaseStepCompleteMsg{step: step, err: checkoutErr, output: checkoutOutput}
+			}
+
 			// Step 4.1: Remove all files
 			output1, err1 := executor.RunCommand(cmds.Step4RemoveAll())
 			if err1 != nil {
-				return releaseStepCompleteMsg{step: step, err: err1, output: output1}
+				return releaseStepCompleteMsg{step: step, err: err1, output: checkoutOutput + output1}
 			}
 
 			// Step 4.2: Checkout from root
 			output2, err2 := executor.RunCommand(cmds.Step4CheckoutFromRoot())
 			if err2 != nil {
-				return releaseStepCompleteMsg{step: step, err: err2, output: output1 + output2}
+				return releaseStepCompleteMsg{step: step, err: err2, output: checkoutOutput + output1 + output2}
 			}
 
 			// Step 4.3: Exclude files - restore from env branch or remove if not exists
@@ -978,9 +1001,9 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 				for _, file := range excluded {
 					output3 += fmt.Sprintf("Excluding: %s\n", releaseOrangeStyle.Render(file))
 					// Try to restore file from environment branch (keeps it unchanged)
-					checkoutCmd := fmt.Sprintf("git checkout origin/%s -- %q 2>/dev/null", state.Environment.BranchName, file)
-					_, checkoutErr := executor.RunCommand(checkoutCmd)
-					if checkoutErr != nil {
+					restoreCmd := fmt.Sprintf("git checkout origin/%s -- %q 2>/dev/null", state.Environment.BranchName, file)
+					_, restoreErr := executor.RunCommand(restoreCmd)
+					if restoreErr != nil {
 						// File doesn't exist in env branch - remove it completely
 						executor.RunCommand(fmt.Sprintf("rm -rf %q", file))
 						executor.RunCommand(fmt.Sprintf("git rm -rf --cached %q 2>/dev/null || true", file))
@@ -988,7 +1011,7 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 				}
 			}
 
-			output = output1 + output2 + output3
+			output = checkoutOutput + output1 + output2 + output3
 
 		case ReleaseStepCommit:
 			// Get next v-number and create commit
@@ -1136,9 +1159,31 @@ func (m *model) handleReleaseStepComplete(msg releaseStepCompleteMsg) (tea.Model
 		m.appendReleaseOutput("")
 		m.appendReleaseOutput(terminalErrorStyle.Render("ERROR: " + msg.err.Error()))
 
-		state.LastError = &ReleaseError{
-			Step:    msg.step,
-			Message: msg.err.Error(),
+		// Special handling for commit step errors (likely linter errors)
+		// Reset to release-root branch so user can fix there
+		if msg.step == ReleaseStepCommit {
+			m.appendReleaseOutput("")
+			m.appendReleaseOutput("Resetting to release-root branch for fixes...")
+
+			// Reset staged changes and switch to release-root branch
+			executor := NewGitExecutor(state.WorkDir, nil)
+			executor.RunCommand("git reset")
+			cmds := NewReleaseCommandsWithSourceBranch(state.WorkDir, state.Version, &state.Environment, nil, nil, state.SourceBranch, state.SourceBranchIsRemote)
+			executor.RunCommand(fmt.Sprintf("git checkout %s", cmds.ReleaseRootBranch()))
+			executor.Close()
+
+			m.appendReleaseOutput(fmt.Sprintf("Switched to %s", releaseOrangeStyle.Render(cmds.ReleaseRootBranch())))
+
+			state.LastError = &ReleaseError{
+				Step:    ReleaseStepCopyContent, // Retry from copy content step
+				Message: msg.err.Error(),
+				Code:    "COMMIT_FAILED",
+			}
+		} else {
+			state.LastError = &ReleaseError{
+				Step:    msg.step,
+				Message: msg.err.Error(),
+			}
 		}
 		// Save last 5000 lines of terminal output (buffer + current screen)
 		fullOutput := strings.Join(m.releaseOutputBuffer, "\n")
@@ -1240,8 +1285,8 @@ func (m *model) handleReleaseStepComplete(msg releaseStepCompleteMsg) (tea.Model
 		// Focus on "Create MR" button (index 1: Abort=0, CreateMR=1)
 		m.releaseButtonIndex = 1
 	} else if nextStep == ReleaseStepWaitForRootPush {
-		// Focus on "Push root branches" button (index 1: Abort=0, PushRoot=1)
-		m.releaseButtonIndex = 1
+		// Focus on "Push root branches" button (index 2: Abort=0, Open=1, PushRoot=2)
+		m.releaseButtonIndex = 2
 	} else if nextStep == ReleaseStepComplete {
 		// Release complete (including root merge if enabled)
 		// Clear release state so Ctrl+C goes to MRs list
@@ -1333,8 +1378,8 @@ func (m *model) handleMRCreated(msg releaseMRCreatedMsg) (tea.Model, tea.Cmd) {
 	SaveReleaseState(m.releaseState)
 	m.updateReleaseButtons()
 
-	// Focus on "Push root branches" button (index 1: Abort=0, PushRoot=1)
-	m.releaseButtonIndex = 1
+	// Focus on "Push root branches" button (index 2: Abort=0, Open=1, PushRoot=2)
+	m.releaseButtonIndex = 2
 
 	// Open MR URL in Safari (with fallback to default browser)
 	return m, openInSafariWithFallback(msg.url)
@@ -1613,8 +1658,8 @@ func (m *model) resumeRelease(state *ReleaseState) tea.Cmd {
 		return nil
 	}
 	if state.CurrentStep == ReleaseStepWaitForRootPush {
-		// Focus on "Push root branches" button (index 1: Abort=0, PushRoot=1)
-		m.releaseButtonIndex = 1
+		// Focus on "Push root branches" button (index 2: Abort=0, Open=1, PushRoot=2)
+		m.releaseButtonIndex = 2
 		return nil
 	}
 	if state.CurrentStep == ReleaseStepComplete {
