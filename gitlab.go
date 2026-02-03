@@ -358,3 +358,119 @@ func (c *GitLabClient) CreateMergeRequest(projectID int, sourceBranch, targetBra
 
 	return &mr, nil
 }
+
+// GetMergeRequestStatus fetches the status of a merge request to check if it's merged
+func (c *GitLabClient) GetMergeRequestStatus(projectID, mrIID int) (*MergeRequest, error) {
+	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d", c.baseURL, projectID, mrIID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitLab API error: status %d", resp.StatusCode)
+	}
+
+	var mr MergeRequest
+	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &mr, nil
+}
+
+// GetMergeRequestPipelines fetches pipelines associated with a merge request
+func (c *GitLabClient) GetMergeRequestPipelines(projectID, mrIID int) ([]Pipeline, error) {
+	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/pipelines", c.baseURL, projectID, mrIID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitLab API error: status %d", resp.StatusCode)
+	}
+
+	var pipelines []Pipeline
+	if err := json.NewDecoder(resp.Body).Decode(&pipelines); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return pipelines, nil
+}
+
+// GetPipelinesByCommit fetches pipelines for a specific commit SHA
+func (c *GitLabClient) GetPipelinesByCommit(projectID int, sha string) ([]Pipeline, error) {
+	url := fmt.Sprintf("%s/api/v4/projects/%d/pipelines?sha=%s", c.baseURL, projectID, sha)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitLab API error: status %d", resp.StatusCode)
+	}
+
+	var pipelines []Pipeline
+	if err := json.NewDecoder(resp.Body).Decode(&pipelines); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return pipelines, nil
+}
+
+// GetPipelineJobs fetches jobs for a specific pipeline
+func (c *GitLabClient) GetPipelineJobs(projectID, pipelineID int) ([]PipelineJob, error) {
+	url := fmt.Sprintf("%s/api/v4/projects/%d/pipelines/%d/jobs?per_page=100", c.baseURL, projectID, pipelineID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitLab API error: status %d", resp.StatusCode)
+	}
+
+	var jobs []PipelineJob
+	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return jobs, nil
+}

@@ -76,11 +76,10 @@ func (m *model) initReleaseScreen() {
 	contentWidth := m.width - sidebarW - 4
 	contentHeight := m.height - 4
 
-	// Status 3 lines + top padding 1 + empty after status 1 + horizontal line 1 + border 2 + empty before buttons 1 + buttons 1 = 10
-	// Use -11 to leave 1 empty line at the bottom
+	// Layout: status 5 + hrline 1 + viewport border 2 + empty before buttons 1 + buttons 1 + empty after buttons 1 = 11
 	viewportHeight := contentHeight - 11
-	if viewportHeight < 5 {
-		viewportHeight = 5
+	if viewportHeight < 1 {
+		viewportHeight = 1
 	}
 
 	m.releaseViewport = viewport.New(contentWidth-4, viewportHeight)
@@ -114,9 +113,14 @@ func (m *model) updateReleaseButtons() {
 		m.releaseButtons = append(m.releaseButtons, ReleaseButtonCreateMR)
 	}
 
-	// Open is available at step 8 (waiting for root push) when MR URL exists
+	// Open MR is available at step 8 (waiting for root push) when MR URL exists
 	if state.CurrentStep == ReleaseStepWaitForRootPush && state.CreatedMRURL != "" {
-		m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpen)
+		m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpenMR)
+	}
+
+	// Open Pipeline is available at step 8 when pipeline URL exists
+	if state.CurrentStep == ReleaseStepWaitForRootPush && m.pipelineStatus != nil && m.pipelineStatus.PipelineWebURL != "" {
+		m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpenPipeline)
 	}
 
 	// Push root branches is available at step 8 (waiting for root push) and no error
@@ -128,7 +132,7 @@ func (m *model) updateReleaseButtons() {
 	if state.CurrentStep == ReleaseStepComplete {
 		m.releaseButtons = append(m.releaseButtons, ReleaseButtonComplete)
 		if state.CreatedMRURL != "" {
-			m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpen)
+			m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpenMR)
 		}
 	}
 
@@ -169,7 +173,7 @@ func (m *model) appendReleaseOutput(line string) {
 
 // appendRecoveryMetadata adds recovery metadata to the terminal output at release start
 func (m *model) appendRecoveryMetadata(workDir string, state *ReleaseState) {
-	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
+	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	m.releaseOutputBuffer = append(m.releaseOutputBuffer, headerStyle.Render("Release recover metadata:"))
 
 	// Get commit IDs for various branches
@@ -391,9 +395,14 @@ func (m model) executeReleaseButton() (tea.Model, tea.Cmd) {
 	case ReleaseButtonComplete:
 		return m.completeRelease()
 
-	case ReleaseButtonOpen:
+	case ReleaseButtonOpenMR:
 		if m.releaseState != nil && m.releaseState.CreatedMRURL != "" {
 			return m, openInBrowser(m.releaseState.CreatedMRURL)
+		}
+
+	case ReleaseButtonOpenPipeline:
+		if m.pipelineStatus != nil && m.pipelineStatus.PipelineWebURL != "" {
+			return m, openInBrowser(m.pipelineStatus.PipelineWebURL)
 		}
 	}
 
@@ -450,70 +459,67 @@ func (m model) viewRelease() string {
 
 // renderReleaseContent renders the main content area
 func (m model) renderReleaseContent(width, height int) string {
-	var sb strings.Builder
+	lines := make([]string, 0, height)
 
-	// Status section (minimum 3 lines, but can expand)
-	sb.WriteString("\n")
+	// Status section - always exactly 5 visual lines
 	status := m.renderReleaseStatus(width)
-	statusLines := strings.Count(status, "\n") + 1
-	// Pad status to minimum 3 lines
-	for statusLines < 3 {
-		status += "\n"
-		statusLines++
-	}
-	sb.WriteString(status)
+	statusParts := strings.Split(status, "\n")
 
-	// Check if hint text wraps (for ReleaseStepWaitForRootPush)
-	hintExtraLines := 0
-	if m.releaseState != nil && m.releaseState.CurrentStep == ReleaseStepWaitForRootPush {
-		hintText := m.renderRootPushHint()
-		hintWidth := lipgloss.Width(hintText)
-		if hintWidth > width {
-			// Calculate how many extra lines the hint takes when wrapped
-			hintExtraLines = (hintWidth - 1) / width
+	// Account for text wrapping: any line wider than width wraps to extra visual lines
+	visualLines := 0
+	for _, part := range statusParts {
+		lineWidth := lipgloss.Width(part)
+		if lineWidth > width && width > 0 {
+			visualLines += (lineWidth + width - 1) / width
+		} else {
+			visualLines++
 		}
 	}
 
-	// Skip empty line margin when status takes more than minimum 3 lines or hint text wraps
-	if statusLines > 3 || hintExtraLines > 0 {
-		sb.WriteString("\n")
+	// Pad status to 5 lines: max 1 empty line at top, rest at bottom
+	// If 5+ lines of text, no padding at all
+	if visualLines < 5 {
+		topPad := 1
+		bottomPad := 5 - visualLines - topPad
+		for i := 0; i < topPad; i++ {
+			lines = append(lines, "")
+		}
+		lines = append(lines, statusParts...)
+		for i := 0; i < bottomPad; i++ {
+			lines = append(lines, "")
+		}
 	} else {
-		sb.WriteString("\n\n")
+		lines = append(lines, statusParts...)
 	}
 
 	// Horizontal line
-	line := releaseHorizontalLineStyle.Render(strings.Repeat("─", width))
-	sb.WriteString(line)
-	sb.WriteString("\n")
+	lines = append(lines, releaseHorizontalLineStyle.Render(strings.Repeat("─", width)))
 
-	// Calculate dynamic viewport height based on status height
-	// Base calculation: height - 11 (status 3 + top padding 1 + empty after status 1 + line 1 + border 2 + empty before buttons 1 + buttons 1 = 10, plus 1 empty at bottom)
-	// If status takes more than 3 lines or hint wraps, shrink viewport accordingly
-	extraStatusLines := statusLines - 3
-	viewportHeight := height - 11 - extraStatusLines - hintExtraLines
-	if statusLines > 3 || hintExtraLines > 0 {
-		viewportHeight++ // Compensate for skipped empty line margin
-	}
-	if viewportHeight < 5 {
-		viewportHeight = 5
+	// Calculate viewport height
+	// Fixed lines around viewport: hrline 1 + viewport border 2 + empty before buttons 1 + buttons 1 + empty after buttons 1 = 6
+	linesBeforeViewport := len(lines)
+	linesAfterViewport := 3 // empty before buttons + buttons + empty after buttons
+	viewportHeight := height - linesBeforeViewport - 2 - linesAfterViewport
+	if viewportHeight < 1 {
+		viewportHeight = 1
 	}
 
-	// Create a viewport with dynamic height for this render
+	// Viewport with border
 	vp := m.releaseViewport
 	vp.Height = viewportHeight
-	viewportContent := vp.View()
-	sb.WriteString(releaseTerminalStyle.Render(viewportContent))
+	viewportRendered := releaseTerminalStyle.Render(vp.View())
+	lines = append(lines, strings.Split(viewportRendered, "\n")...)
 
-	// One empty line before buttons
-	sb.WriteString("\n\n")
+	// Button section: empty line, buttons
+	lines = append(lines, "")
+	lines = append(lines, m.renderReleaseButtons(width))
 
-	// Buttons
-	sb.WriteString(m.renderReleaseButtons(width))
+	// Pad to exact height to guarantee empty line after buttons
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
 
-	// One empty line after buttons
-	sb.WriteString("\n")
-
-	return sb.String()
+	return strings.Join(lines[:height], "\n")
 }
 
 // renderReleaseStatus renders the status section
@@ -653,10 +659,19 @@ func (m model) renderReleaseStatus(width int) string {
 
 	case ReleaseStepWaitForRootPush:
 		hintText := m.renderRootPushHint()
-		status = fmt.Sprintf("Merge request is %s\nNow push release branch to root and develop:\n%s",
-			releaseSuccessGreenStyle.Render(" CREATED "),
-			hintText,
-		)
+		pipelineStatus := m.renderPipelineStatus()
+		if pipelineStatus != "" {
+			status = fmt.Sprintf("Merge request is %s\n%s\nNow you can push release branch to root and develop:\n%s",
+				releaseSuccessGreenStyle.Render(" CREATED "),
+				pipelineStatus,
+				hintText,
+			)
+		} else {
+			status = fmt.Sprintf("Merge request is %s\nNow you can push release branch to root and develop:\n%s",
+				releaseSuccessGreenStyle.Render(" CREATED "),
+				hintText,
+			)
+		}
 
 	case ReleaseStepPushRootBranches:
 		status = fmt.Sprintf("%s %s %s\nPushing root branches...",
@@ -751,8 +766,15 @@ func (m model) renderReleaseButtons(width int) string {
 			} else {
 				style = buttonStyle
 			}
-		case ReleaseButtonOpen:
-			label = "Open"
+		case ReleaseButtonOpenMR:
+			label = "Open MR"
+			if isFocused {
+				style = buttonActiveStyle
+			} else {
+				style = buttonStyle
+			}
+		case ReleaseButtonOpenPipeline:
+			label = "Open Pipeline"
 			if isFocused {
 				style = buttonActiveStyle
 			} else {
@@ -1381,8 +1403,8 @@ func (m *model) handleMRCreated(msg releaseMRCreatedMsg) (tea.Model, tea.Cmd) {
 	// Focus on "Push root branches" button (index 2: Abort=0, Open=1, PushRoot=2)
 	m.releaseButtonIndex = 2
 
-	// Open MR URL in Safari (with fallback to default browser)
-	return m, openInSafariWithFallback(msg.url)
+	// Start pipeline observer and open MR URL in Safari
+	return m, tea.Batch(m.startPipelineObserver(), openInSafariWithFallback(msg.url))
 }
 
 // retryRelease retries from the last failed step
@@ -1406,6 +1428,10 @@ func (m model) retryRelease() (tea.Model, tea.Cmd) {
 
 // abortRelease cleans up and aborts the release
 func (m model) abortRelease() (tea.Model, tea.Cmd) {
+	// Stop pipeline observer
+	m.stopPipelineObserver()
+	m.pipelineStatus = nil
+
 	if m.releaseState != nil {
 		workDir := m.releaseState.WorkDir
 		version := m.releaseState.Version
@@ -1452,6 +1478,10 @@ func (m model) abortRelease() (tea.Model, tea.Cmd) {
 
 // abortReleaseWithRemoteDeletion cleans up and aborts the release, optionally deleting remote branch
 func (m model) abortReleaseWithRemoteDeletion(deleteRemote bool) (tea.Model, tea.Cmd) {
+	// Stop pipeline observer
+	m.stopPipelineObserver()
+	m.pipelineStatus = nil
+
 	if m.releaseState != nil {
 		workDir := m.releaseState.WorkDir
 		version := m.releaseState.Version
@@ -1556,7 +1586,7 @@ func (m model) renderRootPushHint() string {
 			tagStyle.Render(tagName),
 			textStyle.Render(" and merged to"),
 			branchStyle.Render("develop"),
-			textStyle.Render(", finally all pushed to remote"),
+			textStyle.Render(",\nfinally all pushed to remote"),
 		)
 	}
 
@@ -1575,6 +1605,10 @@ func (m model) startPushRootBranches() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Stop pipeline observer
+	m.stopPipelineObserver()
+	m.pipelineStatus = nil
+
 	m.releaseState.CurrentStep = ReleaseStepPushRootBranches
 	m.updateReleaseButtons()
 	SaveReleaseState(m.releaseState)
@@ -1585,6 +1619,10 @@ func (m model) startPushRootBranches() (tea.Model, tea.Cmd) {
 
 // completeRelease finishes the release and cleans up
 func (m model) completeRelease() (tea.Model, tea.Cmd) {
+	// Stop pipeline observer
+	m.stopPipelineObserver()
+	m.pipelineStatus = nil
+
 	ClearReleaseState()
 	m.releaseState = nil
 	m.releaseOutputBuffer = nil
@@ -1660,7 +1698,8 @@ func (m *model) resumeRelease(state *ReleaseState) tea.Cmd {
 	if state.CurrentStep == ReleaseStepWaitForRootPush {
 		// Focus on "Push root branches" button (index 2: Abort=0, Open=1, PushRoot=2)
 		m.releaseButtonIndex = 2
-		return nil
+		// Start pipeline observer when resuming at this step
+		return m.startPipelineObserver()
 	}
 	if state.CurrentStep == ReleaseStepComplete {
 		return nil
@@ -1685,4 +1724,264 @@ func delayedStartRelease() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 		return nil
 	})
+}
+
+// startPipelineObserver starts the pipeline observer and returns the first tick command
+func (m *model) startPipelineObserver() tea.Cmd {
+	m.pipelineObserving = true
+	m.pipelineStatus = &PipelineStatus{
+		Stage: PipelineStageLoading,
+	}
+	// Return first check immediately
+	return m.checkPipelineStatus()
+}
+
+// stopPipelineObserver stops the pipeline observer
+func (m *model) stopPipelineObserver() {
+	m.pipelineObserving = false
+}
+
+// pipelineTick returns a command that triggers a pipeline check after 7 seconds
+func (m *model) pipelineTick() tea.Cmd {
+	return tea.Tick(7*time.Second, func(t time.Time) tea.Msg {
+		return pipelineTickMsg{}
+	})
+}
+
+// getEnvJobSuffix returns the job suffix for the given environment branch
+func getEnvJobSuffix(envBranch string) string {
+	switch envBranch {
+	case "develop":
+		return "dev01"
+	case "testing":
+		return "test01"
+	case "stable":
+		return "stage01"
+	case "master", "main":
+		return "prod01"
+	default:
+		return ""
+	}
+}
+
+// isRelevantJob checks if a job is a Package or Deploy job for our apps
+func isRelevantJob(jobName, envSuffix string) bool {
+	if envSuffix == "" {
+		return false
+	}
+
+	// App names to track
+	apps := []string{"Main", "Admin", "JudgePersonal", "Touch"}
+
+	// Normalize job name for comparison
+	jobNameLower := strings.ToLower(jobName)
+
+	for _, app := range apps {
+		// Check Package jobs: "Package Application {App} {env}"
+		packagePattern := strings.ToLower(fmt.Sprintf("Package Application %s %s", app, envSuffix))
+		if jobNameLower == packagePattern {
+			return true
+		}
+
+		// Check Deploy jobs: "Deploy Application {App} {env}" or "Deploy Application {App} for {env}"
+		deployPattern1 := strings.ToLower(fmt.Sprintf("Deploy Application %s %s", app, envSuffix))
+		deployPattern2 := strings.ToLower(fmt.Sprintf("Deploy Application %s for %s", app, envSuffix))
+		if jobNameLower == deployPattern1 || jobNameLower == deployPattern2 {
+			return true
+		}
+
+		// Also check "Deploy Application {App} to {env}" pattern
+		deployPattern3 := strings.ToLower(fmt.Sprintf("Deploy Application %s to %s", app, envSuffix))
+		if jobNameLower == deployPattern3 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// checkPipelineStatus fetches MR and pipeline status from GitLab API
+func (m *model) checkPipelineStatus() tea.Cmd {
+	return func() tea.Msg {
+		if m.releaseState == nil || m.creds == nil {
+			return pipelineStatusMsg{err: fmt.Errorf("invalid state")}
+		}
+
+		client := NewGitLabClient(m.creds.GitLabURL, m.creds.Token)
+		status := &PipelineStatus{}
+
+		// Step 1: Fetch MR status
+		mr, err := client.GetMergeRequestStatus(m.releaseState.ProjectID, m.releaseState.CreatedMRIID)
+		if err != nil {
+			status.Error = err
+			return pipelineStatusMsg{status: status, err: err}
+		}
+
+		// Check if MR is merged
+		if mr.State != "merged" {
+			status.Stage = PipelineStageWaitingForMerge
+			status.MRMerged = false
+			return pipelineStatusMsg{status: status}
+		}
+
+		status.MRMerged = true
+
+		// Step 2: Fetch pipelines for the merge commit
+		// After MR is merged, pipelines run on target branch, not associated with MR directly
+		var pipelines []Pipeline
+		if mr.MergeCommitSHA != "" {
+			pipelines, err = client.GetPipelinesByCommit(m.releaseState.ProjectID, mr.MergeCommitSHA)
+			if err != nil {
+				status.Error = err
+				return pipelineStatusMsg{status: status, err: err}
+			}
+		}
+
+		// Fallback: try MR pipelines API if no pipelines found by commit
+		if len(pipelines) == 0 {
+			pipelines, err = client.GetMergeRequestPipelines(m.releaseState.ProjectID, m.releaseState.CreatedMRIID)
+			if err != nil {
+				status.Error = err
+				return pipelineStatusMsg{status: status, err: err}
+			}
+		}
+
+		// No pipelines yet
+		if len(pipelines) == 0 {
+			status.Stage = PipelineStageWaitingForStart
+			return pipelineStatusMsg{status: status}
+		}
+
+		// Get the latest pipeline (first in the list)
+		latestPipeline := pipelines[0]
+		status.PipelineID = latestPipeline.ID
+		status.PipelineWebURL = latestPipeline.WebURL
+		status.PipelineState = latestPipeline.Status
+
+		// Step 3: Fetch pipeline jobs to track specific Package/Deploy jobs
+		jobs, err := client.GetPipelineJobs(m.releaseState.ProjectID, latestPipeline.ID)
+		if err != nil {
+			status.Error = err
+			return pipelineStatusMsg{status: status, err: err}
+		}
+
+		// Get the job suffix for this environment
+		envSuffix := getEnvJobSuffix(m.releaseState.Environment.BranchName)
+
+		// Count relevant jobs by status
+		for _, job := range jobs {
+			if !isRelevantJob(job.Name, envSuffix) {
+				continue
+			}
+
+			status.TotalJobs++
+
+			switch job.Status {
+			case "success":
+				status.CompletedJobs++
+			case "failed", "canceled":
+				status.FailedJobs++
+			case "pending", "running", "preparing", "waiting_for_resource":
+				status.RunningJobs++
+			case "created", "manual":
+				// "created" = job exists but not yet scheduled; "manual" = awaiting manual trigger
+				// Neither means the job is actively running
+			case "skipped":
+				// Skipped jobs don't count towards failure - they just weren't needed
+				status.TotalJobs-- // Remove from total
+			}
+		}
+
+		// Determine stage based on job statuses
+		if status.TotalJobs == 0 {
+			// No relevant jobs found yet - waiting for pipeline to start properly
+			status.Stage = PipelineStageWaitingForStart
+		} else if status.CompletedJobs == 0 && status.FailedJobs == 0 && status.RunningJobs == 0 {
+			// All relevant jobs are manual (not triggered yet) - waiting for start
+			status.Stage = PipelineStageWaitingForStart
+		} else if status.FailedJobs > 0 {
+			// Any failed job means pipeline failed
+			status.Stage = PipelineStageFailed
+		} else if status.CompletedJobs == status.TotalJobs {
+			// All jobs completed successfully
+			status.Stage = PipelineStageCompleted
+		} else {
+			// Jobs still running
+			status.Stage = PipelineStageRunning
+		}
+
+		return pipelineStatusMsg{status: status}
+	}
+}
+
+// handlePipelineStatus processes the pipeline status update
+func (m *model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) {
+	if !m.pipelineObserving {
+		return m, nil
+	}
+
+	// Update status even on error (to show check failed)
+	if msg.status != nil {
+		m.pipelineStatus = msg.status
+	}
+
+	// Update buttons to show/hide Open Pipeline button based on pipeline URL
+	m.updateReleaseButtons()
+
+	// Check if we reached a terminal state (only stop on success)
+	if m.pipelineStatus != nil && m.pipelineStatus.Stage == PipelineStageCompleted {
+		return m, nil
+	}
+
+	// Continue polling
+	return m, m.pipelineTick()
+}
+
+// renderPipelineStatus returns the formatted pipeline status line
+func (m *model) renderPipelineStatus() string {
+	if m.pipelineStatus == nil {
+		return ""
+	}
+
+	status := m.pipelineStatus
+
+	loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	failedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+
+	var line string
+
+	switch status.Stage {
+	case PipelineStageLoading:
+		line = m.spinner.View() + " " + loadingStyle.Render("Loading merge request status...")
+	case PipelineStageWaitingForMerge:
+		line = m.spinner.View() + " " + loadingStyle.Render("[1/4] Waiting for manual merge...")
+	case PipelineStageWaitingForStart:
+		line = m.spinner.View() + " " + loadingStyle.Render("[2/4] Waiting for manual pipeline start...")
+	case PipelineStageRunning:
+		progressText := ""
+		if status.TotalJobs > 0 {
+			progressText = fmt.Sprintf(" (%d/%d jobs)", status.CompletedJobs, status.TotalJobs)
+		}
+		line = m.spinner.View() + " " + loadingStyle.Render("[3/4] Waiting for pipeline completion..."+progressText)
+	case PipelineStageCompleted:
+		jobsText := ""
+		if status.TotalJobs > 0 {
+			jobsText = fmt.Sprintf(" (%d jobs)", status.TotalJobs)
+		}
+		line = successStyle.Render("[4/4] Pipeline successfully completed" + jobsText)
+	case PipelineStageFailed:
+		failText := "[4/4] Pipeline failed"
+		if status.FailedJobs > 0 {
+			failText = fmt.Sprintf("[4/4] Pipeline failed (%d/%d jobs failed)", status.FailedJobs, status.TotalJobs)
+		}
+		line = failedStyle.Render(failText)
+	}
+
+	// Add error indicator if there was a check failure
+	if status.Error != nil && status.Stage != PipelineStageCompleted && status.Stage != PipelineStageFailed {
+		line += " " + loadingStyle.Render("(check failed)")
+	}
+
+	return line
 }

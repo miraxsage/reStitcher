@@ -102,6 +102,10 @@ type model struct {
 	showDeleteRemoteConfirm          bool // Second confirmation for deleting remote branch
 	deleteRemoteConfirmIndex         int  // 0 = Yes, 1 = No
 	releaseNeedEmptyLineAfterCommand bool // Flag to add empty line after command output if needed
+
+	// Pipeline observer
+	pipelineObserving bool
+	pipelineStatus    *PipelineStatus
 }
 
 // NewModel creates a new application model
@@ -299,7 +303,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = screenAuth
 
 	case spinner.TickMsg:
-		if m.loading || m.loadingProjects || m.loadingMRs || m.releaseRunning || m.sourceBranchRemoteStatus == "checking" {
+		if m.loading || m.loadingProjects || m.loadingMRs || m.releaseRunning || m.sourceBranchRemoteStatus == "checking" || (m.pipelineObserving && m.pipelineStatus != nil && m.pipelineStatus.Stage != PipelineStageCompleted && m.pipelineStatus.Stage != PipelineStageFailed) {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
@@ -466,6 +470,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+
+	case pipelineTickMsg:
+		if m.pipelineObserving {
+			return m, m.checkPipelineStatus()
+		}
+		return m, nil
+
+	case pipelineStatusMsg:
+		return m.handlePipelineStatus(msg)
 	}
 
 	// Update inputs if on auth screen (for non-KeyMsg messages like Blink)
