@@ -75,6 +75,7 @@ type MergeRequest struct {
 	ChangesCount                string `json:"changes_count"`
 	HasConflicts                bool   `json:"has_conflicts"`
 	BlockingDiscussionsResolved bool   `json:"blocking_discussions_resolved"`
+	MergeCommitSHA              string `json:"merge_commit_sha"`
 }
 
 // MergeRequestDetails contains additional MR details
@@ -205,7 +206,8 @@ const (
 	ReleaseButtonCreateMR
 	ReleaseButtonPushRoot
 	ReleaseButtonComplete
-	ReleaseButtonOpen
+	ReleaseButtonOpenMR
+	ReleaseButtonOpenPipeline
 )
 
 // Bubble Tea messages for release execution
@@ -251,4 +253,56 @@ type sourceBranchCheckMsg struct {
 	exists       bool   // Whether the remote branch exists
 	sameAsRoot   bool   // If exists, whether it points to same commit as root
 	err          error  // Error if check failed
+}
+
+// PipelineObserverStage represents the current stage of pipeline observation
+type PipelineObserverStage int
+
+const (
+	PipelineStageLoading PipelineObserverStage = iota
+	PipelineStageWaitingForMerge
+	PipelineStageWaitingForStart
+	PipelineStageRunning
+	PipelineStageCompleted
+	PipelineStageFailed
+)
+
+// Pipeline represents a GitLab pipeline (API response)
+type Pipeline struct {
+	ID     int    `json:"id"`
+	Status string `json:"status"`
+	WebURL string `json:"web_url"`
+}
+
+// PipelineJob represents a GitLab pipeline job (API response)
+type PipelineJob struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Stage  string `json:"stage"`
+	WebURL string `json:"web_url"`
+}
+
+// PipelineStatus represents the current state of the pipeline observer
+type PipelineStatus struct {
+	Stage          PipelineObserverStage
+	PipelineID     int
+	PipelineWebURL string
+	PipelineState  string
+	MRMerged       bool
+	Error          error
+	// Job tracking
+	TotalJobs     int // Total number of relevant jobs found
+	CompletedJobs int // Number of completed jobs (success)
+	FailedJobs    int // Number of failed jobs
+	RunningJobs   int // Number of running/pending jobs
+}
+
+// pipelineTickMsg triggers a pipeline status check
+type pipelineTickMsg struct{}
+
+// pipelineStatusMsg contains the result of a pipeline status check
+type pipelineStatusMsg struct {
+	status *PipelineStatus
+	err    error
 }
