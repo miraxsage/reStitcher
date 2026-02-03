@@ -294,6 +294,20 @@ func (g *GitExecutor) RunCommand(command string) (string, error) {
 	return output, err
 }
 
+// RunCommands executes multiple shell commands sequentially via PTY.
+// Each command gets its own header in the output. Stops on first error.
+func (g *GitExecutor) RunCommands(commands []string) (string, error) {
+	var output strings.Builder
+	for _, cmd := range commands {
+		out, err := g.RunCommand(cmd)
+		output.WriteString(out)
+		if err != nil {
+			return output.String(), err
+		}
+	}
+	return output.String(), nil
+}
+
 // Resize handles terminal resize
 func (g *GitExecutor) Resize(rows, cols uint16) error {
 	g.mu.Lock()
@@ -492,13 +506,17 @@ func (r *ReleaseCommands) EnvReleaseBranch() string {
 // Step1CheckoutRoot returns the command for step 1
 // If source branch exists remotely, checkout from remote
 // If not, create from root branch after pull
-func (r *ReleaseCommands) Step1CheckoutRoot() string {
+func (r *ReleaseCommands) Step1CheckoutRoot() []string {
 	if r.sourceBranchIsRemote {
 		// Source branch exists remotely - checkout from remote to reliably use it locally
-		return fmt.Sprintf("git checkout -B %s origin/%s", r.ReleaseRootBranch(), r.ReleaseRootBranch())
+		return []string{fmt.Sprintf("git checkout -B %s origin/%s", r.ReleaseRootBranch(), r.ReleaseRootBranch())}
 	}
 	// Source branch doesn't exist - create from root after pull
-	return fmt.Sprintf("git checkout root && git pull && git checkout -B %s root", r.ReleaseRootBranch())
+	return []string{
+		"git checkout root",
+		"git pull",
+		fmt.Sprintf("git checkout -B %s root", r.ReleaseRootBranch()),
+	}
 }
 
 // Step2MergeBranch returns the command to merge a specific branch
@@ -511,10 +529,13 @@ func (r *ReleaseCommands) Step2MergeBranch(branchIndex int) string {
 
 // Step3CheckoutEnv returns the command for step 3
 // This handles the case where local env branch might not exist
-func (r *ReleaseCommands) Step3CheckoutEnv() string {
+func (r *ReleaseCommands) Step3CheckoutEnv() []string {
 	// Try to checkout local branch, if it fails try to create from remote
-	return fmt.Sprintf(`git checkout %s 2>/dev/null || git checkout -b %s origin/%s && git pull && git checkout -B %s`,
-		r.envBranch, r.envBranch, r.envBranch, r.EnvReleaseBranch())
+	return []string{
+		fmt.Sprintf(`git checkout %s 2>/dev/null || git checkout -b %s origin/%s`, r.envBranch, r.envBranch, r.envBranch),
+		"git pull",
+		fmt.Sprintf("git checkout -B %s", r.EnvReleaseBranch()),
+	}
 }
 
 // Step4RemoveAll returns the command to remove all files from index
@@ -539,14 +560,22 @@ func (r *ReleaseCommands) Step6Push() string {
 }
 
 // StepMergeToRoot returns the command to merge source branch to root
-func (r *ReleaseCommands) StepMergeToRoot() string {
-	return fmt.Sprintf("git checkout root && git merge --no-edit %s", r.ReleaseRootBranch())
+func (r *ReleaseCommands) StepMergeToRoot() []string {
+	return []string{
+		"git checkout root",
+		fmt.Sprintf("git merge --no-edit %s", r.ReleaseRootBranch()),
+	}
 }
 
 // StepMergeToDevelop returns the command to merge root to develop and push
 // This is step 6c: git checkout develop && git pull && git merge root && git push
-func (r *ReleaseCommands) StepMergeToDevelop() string {
-	return "git checkout develop && git pull && git merge --no-edit root && git push"
+func (r *ReleaseCommands) StepMergeToDevelop() []string {
+	return []string{
+		"git checkout develop",
+		"git pull",
+		"git merge --no-edit root",
+		"git push",
+	}
 }
 
 // ParseVersionNumber extracts version number from release commit title

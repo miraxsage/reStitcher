@@ -407,6 +407,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case releaseCommandStartMsg:
+		// Flush current virtual terminal screen to buffer before starting new command
+		if m.releaseCurrentScreen != "" {
+			lines := strings.Split(m.releaseCurrentScreen, "\n")
+			for _, line := range lines {
+				m.releaseOutputBuffer = append(m.releaseOutputBuffer, line)
+			}
+			if len(m.releaseOutputBuffer) > maxOutputLines {
+				m.releaseOutputBuffer = m.releaseOutputBuffer[len(m.releaseOutputBuffer)-maxOutputLines:]
+			}
+			m.releaseCurrentScreen = ""
+		}
 		// Smart empty line before command: only add if last line isn't empty
 		if len(m.releaseOutputBuffer) > 0 {
 			lastLine := m.releaseOutputBuffer[len(m.releaseOutputBuffer)-1]

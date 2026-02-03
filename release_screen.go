@@ -963,8 +963,7 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 
 		switch step {
 		case ReleaseStepCheckoutRoot:
-			command = cmds.Step1CheckoutRoot()
-			output, err = executor.RunCommand(command)
+			output, err = executor.RunCommands(cmds.Step1CheckoutRoot())
 
 		case ReleaseStepMergeBranches:
 			// Check if we need to continue a merge
@@ -993,8 +992,7 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 					output: "",
 				}
 			}
-			command = cmds.Step3CheckoutEnv()
-			output, err = executor.RunCommand(command)
+			output, err = executor.RunCommands(cmds.Step3CheckoutEnv())
 
 		case ReleaseStepCopyContent:
 			// First, ensure we're on the env-release-branch (needed when retrying after commit failure)
@@ -1079,8 +1077,7 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 				output = output1
 
 				// Merge source branch to root
-				mergeRootCmd := cmds.StepMergeToRoot()
-				output2, err2 := executor.RunCommand(mergeRootCmd)
+				output2, err2 := executor.RunCommands(cmds.StepMergeToRoot())
 				if err2 != nil {
 					return releaseStepCompleteMsg{step: step, err: err2, output: output + output2}
 				}
@@ -1103,8 +1100,7 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 				output += output4
 
 				// Merge root to develop and push
-				mergeDevelopCmd := cmds.StepMergeToDevelop()
-				output5, err5 := executor.RunCommand(mergeDevelopCmd)
+				output5, err5 := executor.RunCommands(cmds.StepMergeToDevelop())
 				if err5 != nil {
 					return releaseStepCompleteMsg{step: step, err: err5, output: output + output5}
 				}
@@ -1445,9 +1441,9 @@ func (m model) abortRelease() (tea.Model, tea.Cmd) {
 		}
 
 		// Reset to clean state
-		cmd := fmt.Sprintf("cd %q && git reset --hard && git checkout root", workDir)
 		exec := NewGitExecutor(workDir, nil)
-		exec.RunCommand(cmd)
+		exec.RunCommand("git reset --hard")
+		exec.RunCommand("git checkout root")
 		exec.Close()
 
 		// Delete created branches
@@ -1500,23 +1496,21 @@ func (m model) abortReleaseWithRemoteDeletion(deleteRemote bool) (tea.Model, tea
 			exec := NewGitExecutor(workDir, nil)
 
 			// Delete env release branch (e.g. release/rpb-1.0.0-dev)
-			envBranchCmd := fmt.Sprintf("cd %q && git push origin --delete %s", workDir, cmds.EnvReleaseBranch())
-			exec.RunCommand(envBranchCmd)
+			exec.RunCommand(fmt.Sprintf("git push origin --delete %s", cmds.EnvReleaseBranch()))
 
 			// Delete source/root branch only if it was newly created (not pre-existing on remote)
 			if !m.releaseState.SourceBranchIsRemote {
-				rootBranchCmd := fmt.Sprintf("cd %q && git push origin --delete %s", workDir, cmds.ReleaseRootBranch())
-				exec.RunCommand(rootBranchCmd)
+				exec.RunCommand(fmt.Sprintf("git push origin --delete %s", cmds.ReleaseRootBranch()))
 			}
 
 			exec.Close()
 		}
 
 		// Reset to clean state
-		cmd := fmt.Sprintf("cd %q && git reset --hard && git checkout root", workDir)
-		exec := NewGitExecutor(workDir, nil)
-		exec.RunCommand(cmd)
-		exec.Close()
+		exec2 := NewGitExecutor(workDir, nil)
+		exec2.RunCommand("git reset --hard")
+		exec2.RunCommand("git checkout root")
+		exec2.Close()
 
 		// Delete created branches
 		DeleteLocalBranches(workDir, version, envBranch)
