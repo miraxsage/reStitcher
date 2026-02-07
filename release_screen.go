@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -1377,6 +1378,10 @@ func (m *model) createGitLabMR() tea.Cmd {
 		sourceBranch := cmds.EnvReleaseBranch()
 		targetBranch := state.Environment.BranchName
 
+		// Get version number and build MR title/body
+		vNumber, _ := GetNextVersionNumber(state.WorkDir, state.Environment.BranchName, state.Version)
+		title, body := BuildCommitMessage(state.Version, state.Environment.BranchName, vNumber, state.MRBranches)
+
 		mr, err := client.CreateMergeRequest(state.ProjectID, sourceBranch, targetBranch, title, body)
 		if err != nil {
 			return releaseMRCreatedMsg{err: err}
@@ -1945,6 +1950,34 @@ func (m *model) checkPipelineStatus() tea.Cmd {
 	}
 }
 
+// sendPipelineNotification sends a macOS notification for pipeline completion
+// Configure Script Editor to use "Alerts" style in System Preferences > Notifications for persistent notifications
+func (m *model) sendPipelineNotification(success bool) {
+	var title, message, sound string
+
+	if success {
+		title = "✅ Release Pipeline Succeeded"
+		message = fmt.Sprintf("%s deployed to %s (%d/%d jobs)",
+			m.releaseState.TagName,
+			m.releaseState.Environment.Name,
+			m.pipelineStatus.CompletedJobs,
+			m.pipelineStatus.TotalJobs)
+		sound = "Glass"
+	} else {
+		title = "❌ Release Pipeline Failed"
+		message = fmt.Sprintf("%s to %s (%d/%d jobs failed)",
+			m.releaseState.TagName,
+			m.releaseState.Environment.Name,
+			m.pipelineStatus.FailedJobs,
+			m.pipelineStatus.TotalJobs)
+		sound = "Sosumi"
+	}
+
+	script := fmt.Sprintf(`display notification %q with title %q sound name %q`,
+		message, title, sound)
+	exec.Command("osascript", "-e", script).Start()
+}
+
 // handlePipelineStatus processes the pipeline status update
 func (m *model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) {
 	if !m.pipelineObserving {
@@ -1959,9 +1992,16 @@ func (m *model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd)
 	// Update buttons to show/hide Open Pipeline button based on pipeline URL
 	m.updateReleaseButtons()
 
-	// Check if we reached a terminal state (only stop on success)
-	if m.pipelineStatus != nil && m.pipelineStatus.Stage == PipelineStageCompleted {
-		return m, nil
+	// Check if we reached a terminal state
+	if m.pipelineStatus != nil {
+		switch m.pipelineStatus.Stage {
+		case PipelineStageCompleted:
+			m.sendPipelineNotification(true)
+			return m, nil
+		case PipelineStageFailed:
+			m.sendPipelineNotification(false)
+			return m, nil
+		}
 	}
 
 	// Continue polling
