@@ -24,7 +24,7 @@ var commands = []commandItem{
 // updateCommandMenu handles key events when command menu is open
 func (m model) updateCommandMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "esc":
+	case "ctrl+q", "q", "esc":
 		m.showCommandMenu = false
 		return m, nil
 
@@ -124,7 +124,7 @@ func (m model) overlayCommandMenu(background string) string {
 
 	// Help footer
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("j/k: nav • enter: select • q/esc: close"))
+	b.WriteString(helpStyle.Render("j/k: nav • enter: select • C+q: close"))
 
 	config := ModalConfig{
 		Width:    ModalWidth{Value: 50, Percent: true},
@@ -146,7 +146,7 @@ func (m model) overlayErrorModal(background string) string {
 	b.WriteString("\n\n")
 	b.WriteString(m.errorModalMsg)
 	b.WriteString("\n\n")
-	b.WriteString(helpStyle.Render("enter/esc: close"))
+	b.WriteString(helpStyle.Render("C+q: close"))
 
 	modalContent := renderModal(b.String(), ErrorModalConfig(), m.width)
 

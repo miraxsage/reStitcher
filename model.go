@@ -110,14 +110,22 @@ type model struct {
 	pipelineFailNotified bool // Track if we already sent a failure notification
 
 	// Release history
-	historyList        list.Model
-	historyEntries     []HistoryIndexEntry
-	historySelected    *ReleaseHistoryEntry
-	historyDetailTab   int // 0=MRs, 1=Meta, 2=Logs
-	historyLogsViewport viewport.Model
-	historyMRViewport  viewport.Model
-	historyMRIndex     int  // Selected MR in detail MRs tab
-	loadingHistory     bool
+	historyList           list.Model
+	historyEntries        []HistoryIndexEntry
+	historySelected       *ReleaseHistoryEntry
+	historyDetailTab      int // 0=MRs, 1=Meta, 2=Logs
+	historyLogsViewport   viewport.Model
+	historyMRViewport     viewport.Model
+	historyMRIndex        int                              // Selected MR in detail MRs tab
+	historyMRDetailsMap   map[int]*MergeRequestDetails     // All fetched MR details by index
+	loadingHistory        bool
+	loadingHistoryMRs     bool                             // Loading state for all MRs fetch
+	historyMRsLoadError   bool                             // True if MRs failed to load
+
+	// Open options modal (for "open" actions)
+	showOpenOptionsModal bool
+	openOptions          []OpenOption
+	openOptionsIndex     int
 }
 
 // NewModel creates a new application model
@@ -156,6 +164,7 @@ func NewModel() model {
 			{Name: "PROD", BranchName: "master"},
 		},
 		selectedMRs:          make(map[int]bool),
+		historyMRDetailsMap:  make(map[int]*MergeRequestDetails),
 		rootMergeSelection:   true, // Default to "Yes, merge it"
 		rootMergeButtonIndex: 0,    // Default button is "Yes, merge it"
 	}
@@ -179,6 +188,14 @@ func (m *model) closeAllModals() {
 	m.showSettings = false
 	m.settingsError = ""
 	m.settingsExcludePatterns.Blur()
+	m.closeOpenOptionsModal()
+}
+
+// closeOpenOptionsModal closes the open options modal and clears its state
+func (m *model) closeOpenOptionsModal() {
+	m.showOpenOptionsModal = false
+	m.openOptions = nil
+	m.openOptionsIndex = 0
 }
 
 // Update handles all messages
@@ -192,14 +209,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Block all input during loading states
-		if m.loading || m.loadingProjects || m.loadingMRs || m.loadingHistory {
+		if m.loading || m.loadingProjects || m.loadingMRs || m.loadingHistory || m.loadingHistoryMRs {
 			return m, nil
 		}
 
 		// Handle error modal if open
 		if m.showErrorModal {
 			switch msg.String() {
-			case "enter", "esc":
+			case "enter", "esc", "q", "ctrl+q":
 				m.showErrorModal = false
 				m.errorModalMsg = ""
 			}
@@ -319,7 +336,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case spinner.TickMsg:
-		if m.loading || m.loadingProjects || m.loadingMRs || m.loadingHistory || m.releaseRunning || m.sourceBranchRemoteStatus == "checking" || (m.pipelineObserving && m.pipelineStatus != nil && m.pipelineStatus.Stage != PipelineStageCompleted && m.pipelineStatus.Stage != PipelineStageFailed) {
+		if m.loading || m.loadingProjects || m.loadingMRs || m.loadingHistory || m.loadingHistoryMRs || m.releaseRunning || m.sourceBranchRemoteStatus == "checking" || (m.pipelineObserving && m.pipelineStatus != nil && m.pipelineStatus.Stage != PipelineStageCompleted && m.pipelineStatus.Stage != PipelineStageFailed) {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
@@ -533,8 +550,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.historySelected = msg.entry
 			m.historyDetailTab = 0
 			m.historyMRIndex = 0
+			m.historyMRDetailsMap = make(map[int]*MergeRequestDetails)
+			m.historyMRsLoadError = false
 			m.screen = screenHistoryDetail
 			m.initHistoryDetailScreen()
+			// Don't auto-load MRs, let user trigger with 'r'
+		}
+		return m, nil
+
+	case fetchAllHistoryMRsMsg:
+		m.loadingHistoryMRs = false
+		if msg.err != nil {
+			m.historyMRsLoadError = true
+			m.closeAllModals()
+			m.showErrorModal = true
+			m.errorModalMsg = msg.err.Error()
+			m.historyMRDetailsMap = make(map[int]*MergeRequestDetails)
+		} else {
+			m.historyMRsLoadError = false
+			m.historyMRDetailsMap = msg.mrDetailsMap
+			// Update viewport content if on MRs tab
+			if m.screen == screenHistoryDetail && m.historyDetailTab == 0 {
+				m.updateHistoryMRViewport()
+			}
 		}
 		return m, nil
 	}
@@ -605,7 +643,7 @@ func (m model) View() string {
 	}
 
 	// Overlay loading modal if loading MRs or history
-	if m.loadingMRs || m.loadingHistory {
+	if m.loadingMRs || m.loadingHistory || m.loadingHistoryMRs {
 		view = overlayLoadingModal(m.spinner.View(), view, m.width, m.height)
 	}
 
@@ -627,6 +665,11 @@ func (m model) View() string {
 	// Overlay error modal if open
 	if m.showErrorModal {
 		view = m.overlayErrorModal(view)
+	}
+
+	// Overlay open options modal if open
+	if m.showOpenOptionsModal {
+		view = m.overlayOpenOptionsModal(view)
 	}
 
 	return view

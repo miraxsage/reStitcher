@@ -284,6 +284,73 @@ func (c *GitLabClient) GetProjectMergeRequests(projectID int) ([]*MergeRequestDe
 	return result, nil
 }
 
+// GetMergeRequestBySourceBranch fetches MR details by source branch name (including merged MRs)
+func (c *GitLabClient) GetMergeRequestBySourceBranch(projectID int, sourceBranch string) (*MergeRequestDetails, error) {
+	// Fetch merged/closed MRs with the source branch
+	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests?source_branch=%s&order_by=updated_at&sort=desc&per_page=1",
+		c.baseURL, projectID, sourceBranch)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitLab API error: status %d", resp.StatusCode)
+	}
+
+	var mrs []MergeRequest
+	if err := json.NewDecoder(resp.Body).Decode(&mrs); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(mrs) == 0 {
+		return nil, fmt.Errorf("no MR found for branch %s", sourceBranch)
+	}
+
+	// Get full details for the most recent MR
+	return c.GetMergeRequestDetails(mrs[0])
+}
+
+// GetMergeRequestByIID fetches a merge request by its IID
+func (c *GitLabClient) GetMergeRequestByIID(projectID, mrIID int) (*MergeRequestDetails, error) {
+	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d",
+		c.baseURL, projectID, mrIID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitLab API error: status %d", resp.StatusCode)
+	}
+
+	var mr MergeRequest
+	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Get full details
+	return c.GetMergeRequestDetails(mr)
+}
+
 // extractProjectPath extracts project path from MR web URL
 func extractProjectPath(webURL string) string {
 	// URL format: https://gitlab.com/namespace/project/-/merge_requests/123

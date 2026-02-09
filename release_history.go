@@ -69,6 +69,9 @@ func SaveReleaseHistory(state *ReleaseState, status string, terminalOutput []str
 	detail := &ReleaseHistoryEntry{
 		HistoryIndexEntry: indexEntry,
 		MRBranches:        state.MRBranches,
+		MRURLs:            state.MRURLs,
+		MRIIDs:            state.SelectedMRIIDs,
+		MRCommitSHAs:      state.MRCommitSHAs,
 		SourceBranch:      state.SourceBranch,
 		EnvBranch:         state.Environment.BranchName,
 		RootMerge:         state.RootMerge,

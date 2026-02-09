@@ -32,7 +32,7 @@ func (m *model) initConfirmViewport() {
 // updateConfirm handles key events on the confirmation screen
 func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "u":
+	case "ctrl+q":
 		// Go back to root merge screen, restore button index based on selection
 		m.screen = screenRootMerge
 		if m.rootMergeSelection {
@@ -94,9 +94,9 @@ func (m model) viewConfirm() string {
 	// Help footer
 	var helpText string
 	if m.sourceBranchRemoteStatus == "checking" {
-		helpText = "u: go back • /: commands • C+c: quit"
+		helpText = "C+q: back • /: commands • C+c: quit"
 	} else {
-		helpText = "↓/↑/j/k: scroll • enter: release • u: go back • /: commands • C+c: quit"
+		helpText = "↓/↑/j/k: scroll • enter: release • C+q: back • /: commands • C+c: quit"
 	}
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 

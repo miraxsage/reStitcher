@@ -326,11 +326,16 @@ func (m *model) updateListSize() {
 
 // updateList handles key events on the main list screen
 func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle open options modal first
+	if m.showOpenOptionsModal {
+		return m.updateOpenOptionsModal(msg)
+	}
+
 	var cmds []tea.Cmd
 
 	switch msg.String() {
-	case "q", "esc":
-		// Ignore q and esc - only ctrl+c quits
+	case "esc":
+		// Ignore esc - only ctrl+c quits (ctrl+q goes back)
 		return m, nil
 	case "enter":
 		// Don't proceed if MRs failed to load
@@ -345,11 +350,11 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "o":
-		// Open selected MR in browser
+		// Show options modal for selected MR
 		selected := m.list.SelectedItem()
 		if selected != nil {
-			if mr, ok := selected.(mrListItem); ok {
-				return m, openInBrowser(mr.MR().WebURL)
+			if mr, ok := selected.(mrListItem); ok && mr.MR() != nil {
+				return m.handleOpenAction(buildMROpenOptions(mr.MR()))
 			}
 		}
 		return m, nil
@@ -381,7 +386,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Half page down in viewport
 		m.viewport.HalfViewDown()
 		return m, nil
-	case "u":
+	case "ctrl+q":
 		// Go back to home screen
 		m.screen = screenHome
 		return m, nil
@@ -467,7 +472,7 @@ func (m model) renderMarkdown() string {
 		details.Author.Username,
 		details.SourceBranch,
 		details.TargetBranch,
-		details.CreatedAt.Format("2006 Jan 02 15:04"),
+		details.CreatedAt.Format("02.01.2006 15:04"),
 		discussionInfo,
 		details.CommitsCount,
 		changesCount,
@@ -528,7 +533,7 @@ func (m model) viewList() string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	// Help footer (centered)
-	helpText := "j/k/g/G: nav • space: select • enter: proceed • o: open • r: reload • u: home • /: commands"
+	helpText := "j/k/g/G: nav • space: select • enter: proceed • o: open • r: reload • C+q: back • /: commands"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, main, help)
