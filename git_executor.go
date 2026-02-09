@@ -503,6 +503,12 @@ func (r *ReleaseCommands) EnvReleaseBranch() string {
 	return fmt.Sprintf("release/rpb-%s-%s", r.version, r.envBranch)
 }
 
+// StepGitFetch returns the command to fetch all remote updates
+// This ensures we have the latest information about all remote branches
+func (r *ReleaseCommands) StepGitFetch() string {
+	return "git fetch"
+}
+
 // Step1CheckoutRoot returns the command for step 1
 // If source branch exists remotely, checkout from remote
 // If not, create from root branch after pull

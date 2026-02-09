@@ -60,7 +60,7 @@ func (m model) validateSourceBranch(branchName string) bool {
 // updateSourceBranch handles key events on the source branch input screen
 func (m model) updateSourceBranch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+u":
+	case "ctrl+q":
 		// Go back to version input
 		m.screen = screenVersion
 		m.sourceBranchError = ""
@@ -151,7 +151,7 @@ func (m model) viewSourceBranch() string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	// Help footer
-	helpText := "enter: confirm • C+u: go back • /: commands • C+c: quit"
+	helpText := "enter: confirm • C+q: back • /: commands • C+c: quit"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, main, help)

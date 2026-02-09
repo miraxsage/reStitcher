@@ -44,7 +44,7 @@ func validateVersion(version string) bool {
 // updateVersion handles key events on the version input screen
 func (m model) updateVersion(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "u":
+	case "ctrl+q":
 		// Go back to environment selection
 		// Sync envSelectIndex with selectedEnv to preserve selection
 		if m.selectedEnv != nil {
@@ -145,7 +145,7 @@ func (m model) viewVersion() string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	// Help footer
-	helpText := "enter: confirm • u: go back • /: commands • C+c: quit"
+	helpText := "enter: confirm • C+q: back • /: commands • C+c: quit"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, main, help)

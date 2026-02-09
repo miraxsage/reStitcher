@@ -10,7 +10,7 @@ import (
 // updateRootMerge handles key events on the root merge screen
 func (m model) updateRootMerge(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "u":
+	case "ctrl+q":
 		// Go back to source branch input
 		m.screen = screenSourceBranch
 		return m, nil
@@ -82,7 +82,7 @@ func (m model) viewRootMerge() string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	// Help footer
-	helpText := "tab/h/l: switch • enter: confirm • u: go back • /: commands • C+c: quit"
+	helpText := "tab/h/l: switch • enter: confirm • C+q: back • /: commands • C+c: quit"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, main, help)

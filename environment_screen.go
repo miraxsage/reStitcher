@@ -85,7 +85,7 @@ func getEnvSelectedStyle(envName string) lipgloss.Style {
 // updateEnvSelect handles key events on the environment selection screen
 func (m model) updateEnvSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "u":
+	case "ctrl+q":
 		// Save current selection and go back to MR list
 		m.selectedEnv = &m.environments[m.envSelectIndex]
 		m.screen = screenMain
@@ -146,7 +146,7 @@ func (m model) viewEnvSelect() string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	// Help footer
-	helpText := "j/k: nav • enter: select • u: go back • /: commands • C+c: quit"
+	helpText := "j/k: nav • enter: select • C+q: back • /: commands • C+c: quit"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, main, help)

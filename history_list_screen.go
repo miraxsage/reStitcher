@@ -31,22 +31,16 @@ func (d historyDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	isSelected := index == m.Index()
 	entry := hi.entry
 
-	// Calculate column widths: distribute available width across 4 columns
-	availWidth := d.width - 8 // padding and separators
-	if availWidth < 40 {
-		availWidth = 40
-	}
-
-	// Column proportions: tag 30%, env 20%, datetime 30%, mrs 20%
-	tagW := availWidth * 30 / 100
-	envW := availWidth * 20 / 100
-	dateW := availWidth * 30 / 100
-	mrsW := availWidth - tagW - envW - dateW
+	// Column widths
+	tagW := 15
+	envW := 10
+	dateW := 20
+	mrsW := 10
 
 	// Format values
 	tag := truncateWithEllipsis(entry.Tag, tagW)
 	env := entry.Environment
-	dateStr := entry.DateTime.Format("2006-01-02 15:04")
+	dateStr := entry.DateTime.Format("02.01.2006 15:04")
 	mrs := fmt.Sprintf("%d mrs", entry.MRCount)
 
 	// Pad columns
@@ -105,6 +99,7 @@ func (m *model) initHistoryListScreen() {
 	l.SetShowHelp(false)
 	l.SetFilteringEnabled(true)
 	l.SetShowStatusBar(false)
+	l.SetShowTitle(false) // Hide title, we render it separately
 
 	// Disable default quit keybindings
 	l.KeyMap.Quit.SetEnabled(false)
@@ -139,7 +134,7 @@ func (m *model) fetchHistory() tea.Cmd {
 // updateHistoryList handles key events on the history list screen
 func (m model) updateHistoryList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "u", "q", "esc":
+	case "ctrl+q", "esc":
 		// If filtering, let the list handle it; otherwise go back
 		if m.historyList.FilterState() == list.Filtering {
 			break
@@ -182,15 +177,14 @@ func (m model) viewHistoryList() string {
 		return ""
 	}
 
+	// Render title
+	title := m.historyList.Styles.Title.Render(m.historyList.Title)
+
 	// Render header with column labels
-	availWidth := m.width - 14
-	if availWidth < 40 {
-		availWidth = 40
-	}
-	tagW := availWidth * 30 / 100
-	envW := availWidth * 20 / 100
-	dateW := availWidth * 30 / 100
-	mrsW := availWidth - tagW - envW - dateW
+	tagW := 15
+	envW := 10
+	dateW := 20
+	mrsW := 10
 
 	header := "  " + historyHeaderStyle.Render(
 		"  "+padColumn("TAG", tagW)+" "+padColumn("ENV", envW)+" "+padColumn("DATE", dateW)+" "+padColumn("MRS", mrsW),
@@ -198,14 +192,14 @@ func (m model) viewHistoryList() string {
 
 	listContent := m.historyList.View()
 
+	// Render with spacing: title, empty line, header, list
 	content := contentStyle.
 		Width(m.width - 2).
 		Height(m.height - 4).
-		PaddingTop(1).
-		Render(header + "\n" + listContent)
+		Render(title + "\n\n" + header + "\n" + listContent)
 
 	// Help footer
-	helpText := "j/k: nav • enter: view • /: search • u: home • C+c: quit"
+	helpText := "j/k: nav • enter: view • /: search • C+q: back • C+c: quit"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)

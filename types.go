@@ -78,7 +78,8 @@ type MergeRequest struct {
 	ChangesCount                string `json:"changes_count"`
 	HasConflicts                bool   `json:"has_conflicts"`
 	BlockingDiscussionsResolved bool   `json:"blocking_discussions_resolved"`
-	MergeCommitSHA              string `json:"merge_commit_sha"`
+	SHA                         string `json:"sha"`              // HEAD commit of source branch
+	MergeCommitSHA              string `json:"merge_commit_sha"` // Commit SHA after merge
 }
 
 // MergeRequestDetails contains additional MR details
@@ -144,6 +145,7 @@ type ReleaseStep int
 
 const (
 	ReleaseStepIdle            ReleaseStep = iota
+	ReleaseStepGitFetch                    // Step 0: git fetch to get all remote updates
 	ReleaseStepCheckoutRoot                // Step 1: checkout/create source branch from root or remote
 	ReleaseStepMergeBranches               // Step 2: git merge origin/{branch} for each MR
 	ReleaseStepCheckoutEnv                 // Step 3: git checkout {env} && git pull && git checkout -B release/rpb-{ver}-{env}
@@ -168,7 +170,9 @@ type ReleaseError struct {
 type ReleaseState struct {
 	// Selection info
 	SelectedMRIIDs       []int       `json:"selected_mr_iids"`
-	MRBranches           []string    `json:"mr_branches"`            // Source branches in merge order
+	MRBranches           []string    `json:"mr_branches"`             // Source branches in merge order
+	MRURLs               []string    `json:"mr_urls,omitempty"`       // MR URLs corresponding to each branch
+	MRCommitSHAs         []string    `json:"mr_commit_shas,omitempty"` // Commit SHAs of branch heads at release time
 	Environment          Environment `json:"environment"`
 	Version              string      `json:"version"`
 	SourceBranch         string      `json:"source_branch"`          // Source branch for accumulating MRs (e.g. release/rpb_1.0.0_root)
@@ -211,8 +215,7 @@ const (
 	ReleaseButtonCreateMR
 	ReleaseButtonPushRoot
 	ReleaseButtonComplete
-	ReleaseButtonOpenMR
-	ReleaseButtonOpenPipeline
+	ReleaseButtonOpen // Single "Open" button replaces OpenMR and OpenPipeline
 )
 
 // Bubble Tea messages for release execution
@@ -330,6 +333,9 @@ type HistoryIndexEntry struct {
 type ReleaseHistoryEntry struct {
 	HistoryIndexEntry
 	MRBranches     []string `json:"mr_branches"`
+	MRURLs         []string `json:"mr_urls,omitempty"`         // MR URLs corresponding to each branch
+	MRIIDs         []int    `json:"mr_iids,omitempty"`         // MR IIDs corresponding to each branch
+	MRCommitSHAs   []string `json:"mr_commit_shas,omitempty"`  // Commit SHAs of branch heads at release time
 	SourceBranch   string   `json:"source_branch"`
 	EnvBranch      string   `json:"env_branch"`
 	RootMerge      bool     `json:"root_merge"`
@@ -347,6 +353,18 @@ type fetchHistoryMsg struct {
 type loadHistoryDetailMsg struct {
 	entry *ReleaseHistoryEntry
 	err   error
+}
+
+// fetchHistoryMRMsg is sent when history MR details are fetched
+type fetchHistoryMRMsg struct {
+	details *MergeRequestDetails
+	err     error
+}
+
+// fetchAllHistoryMRsMsg is sent when all history MRs are fetched
+type fetchAllHistoryMRsMsg struct {
+	mrDetailsMap map[int]*MergeRequestDetails
+	err          error
 }
 
 // historyListItem implements list.Item for the history list

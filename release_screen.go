@@ -69,7 +69,8 @@ var (
 
 // calculateReleaseTotalSteps returns the total number of substeps for the release
 func calculateReleaseTotalSteps(state *ReleaseState) int {
-	total := 1                     // CheckoutRoot
+	total := 1                     // GitFetch
+	total += 1                     // CheckoutRoot
 	total += len(state.MRBranches) // MergeBranches (one per MR)
 	total += 1                     // CheckoutEnv
 	total += 3                     // CopyContent (checkout env-release + rm all + checkout from root)
@@ -131,14 +132,11 @@ func (m *model) updateReleaseButtons() {
 		m.releaseButtons = append(m.releaseButtons, ReleaseButtonCreateMR)
 	}
 
-	// Open MR is available at step 8 (waiting for root push) when MR URL exists
-	if state.CurrentStep == ReleaseStepWaitForRootPush && state.CreatedMRURL != "" {
-		m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpenMR)
-	}
-
-	// Open Pipeline is available at step 8 when pipeline URL exists
-	if state.CurrentStep == ReleaseStepWaitForRootPush && m.pipelineStatus != nil && m.pipelineStatus.PipelineWebURL != "" {
-		m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpenPipeline)
+	// Open button: available at step 8 when MR or pipeline URL exists
+	if state.CurrentStep == ReleaseStepWaitForRootPush {
+		if state.CreatedMRURL != "" || (m.pipelineStatus != nil && m.pipelineStatus.PipelineWebURL != "") {
+			m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpen)
+		}
 	}
 
 	// Push root branches is available at step 8 (waiting for root push) and no error
@@ -150,7 +148,7 @@ func (m *model) updateReleaseButtons() {
 	if state.CurrentStep == ReleaseStepComplete {
 		m.releaseButtons = append(m.releaseButtons, ReleaseButtonComplete)
 		if state.CreatedMRURL != "" {
-			m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpenMR)
+			m.releaseButtons = append(m.releaseButtons, ReleaseButtonOpen)
 		}
 	}
 
@@ -229,6 +227,11 @@ func (m *model) appendRecoveryMetadata(workDir string, state *ReleaseState) {
 
 // updateRelease handles key events on the release screen
 func (m model) updateRelease(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle open options modal first
+	if m.showOpenOptionsModal {
+		return m.updateOpenOptionsModal(msg)
+	}
+
 	// Handle delete remote branch confirmation modal (second step after abort confirm)
 	if m.showDeleteRemoteConfirm {
 		switch msg.String() {
@@ -375,9 +378,9 @@ func (m model) updateRelease(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "o":
-		// Open MR URL if available
-		if m.releaseState != nil && m.releaseState.CreatedMRURL != "" {
-			return m, openInBrowser(m.releaseState.CreatedMRURL)
+		// Show options modal for release resources
+		if m.releaseState != nil {
+			return m.handleOpenAction(buildReleaseOpenOptions(m.releaseState, m.pipelineStatus))
 		}
 		return m, nil
 	}
@@ -413,14 +416,9 @@ func (m model) executeReleaseButton() (tea.Model, tea.Cmd) {
 	case ReleaseButtonComplete:
 		return m.completeRelease()
 
-	case ReleaseButtonOpenMR:
-		if m.releaseState != nil && m.releaseState.CreatedMRURL != "" {
-			return m, openInBrowser(m.releaseState.CreatedMRURL)
-		}
-
-	case ReleaseButtonOpenPipeline:
-		if m.pipelineStatus != nil && m.pipelineStatus.PipelineWebURL != "" {
-			return m, openInBrowser(m.pipelineStatus.PipelineWebURL)
+	case ReleaseButtonOpen:
+		if m.releaseState != nil {
+			return m.handleOpenAction(buildReleaseOpenOptions(m.releaseState, m.pipelineStatus))
 		}
 	}
 
@@ -453,8 +451,8 @@ func (m model) viewRelease() string {
 
 	// Help footer
 	helpText := "tab: focus • j/k/d/u/g/G: scroll • enter: action"
-	// Add "o: open" hint when MR URL is available
-	if m.releaseState != nil && m.releaseState.CreatedMRURL != "" {
+	// Add "o: open" hint when MR URL or pipeline URL is available
+	if m.releaseState != nil && (m.releaseState.CreatedMRURL != "" || (m.pipelineStatus != nil && m.pipelineStatus.PipelineWebURL != "")) {
 		helpText += " • o: open"
 	}
 	helpText += " • /: commands"
@@ -784,15 +782,8 @@ func (m model) renderReleaseButtons(width int) string {
 			} else {
 				style = buttonStyle
 			}
-		case ReleaseButtonOpenMR:
-			label = "Open MR"
-			if isFocused {
-				style = buttonActiveStyle
-			} else {
-				style = buttonStyle
-			}
-		case ReleaseButtonOpenPipeline:
-			label = "Open Pipeline"
+		case ReleaseButtonOpen:
+			label = "Open"
 			if isFocused {
 				style = buttonActiveStyle
 			} else {
@@ -896,11 +887,15 @@ func (m *model) startRelease() (tea.Model, tea.Cmd) {
 	items := m.list.Items()
 	var mrIIDs []int
 	var branches []string
+	var mrURLs []string
+	var mrCommitSHAs []string
 	for _, item := range items {
 		if mr, ok := item.(mrListItem); ok {
 			if m.selectedMRs[mr.MR().IID] {
 				mrIIDs = append(mrIIDs, mr.MR().IID)
 				branches = append(branches, mr.MR().SourceBranch)
+				mrURLs = append(mrURLs, mr.MR().WebURL)
+				mrCommitSHAs = append(mrCommitSHAs, mr.MR().SHA)
 			}
 		}
 	}
@@ -912,13 +907,15 @@ func (m *model) startRelease() (tea.Model, tea.Cmd) {
 	state := &ReleaseState{
 		SelectedMRIIDs:       mrIIDs,
 		MRBranches:           branches,
+		MRURLs:               mrURLs,
+		MRCommitSHAs:         mrCommitSHAs,
 		Environment:          *m.selectedEnv,
 		Version:              m.versionInput.Value(),
 		SourceBranch:         m.sourceBranchInput.Value(),
 		SourceBranchIsRemote: sourceBranchIsRemote,
 		RootMerge:            m.rootMergeSelection,
 		ProjectID:            m.selectedProject.ID,
-		CurrentStep:          ReleaseStepCheckoutRoot,
+		CurrentStep:          ReleaseStepGitFetch,
 		LastSuccessStep:      ReleaseStepIdle,
 		MergedBranches:       []string{},
 		WorkDir:              workDir,
@@ -942,7 +939,7 @@ func (m *model) startRelease() (tea.Model, tea.Cmd) {
 
 	// Start execution with spinner
 	m.releaseRunning = true
-	return m, tea.Batch(m.spinner.Tick, m.executeReleaseStep(ReleaseStepCheckoutRoot))
+	return m, tea.Batch(m.spinner.Tick, m.executeReleaseStep(ReleaseStepGitFetch))
 }
 
 // executeReleaseStep runs the appropriate command for a step
@@ -983,6 +980,9 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 		}
 
 		switch step {
+		case ReleaseStepGitFetch:
+			output, err = executor.RunCommand(cmds.StepGitFetch())
+
 		case ReleaseStepCheckoutRoot:
 			output, err = executor.RunCommands(cmds.Step1CheckoutRoot())
 
@@ -1258,6 +1258,11 @@ func (m *model) handleReleaseStepComplete(msg releaseStepCompleteMsg) (tea.Model
 	var nextCmd tea.Cmd
 
 	switch msg.step {
+	case ReleaseStepGitFetch:
+		state.CompletedSubSteps++
+		nextStep = ReleaseStepCheckoutRoot
+		state.CurrentStep = nextStep
+
 	case ReleaseStepCheckoutRoot:
 		state.CompletedSubSteps++
 		nextStep = ReleaseStepMergeBranches
@@ -1682,6 +1687,14 @@ func (m model) completeRelease() (tea.Model, tea.Cmd) {
 			terminalOutput = append(terminalOutput, lines...)
 		}
 		SaveReleaseHistory(m.releaseState, "completed", terminalOutput)
+	}
+
+	// Switch to root branch as the final operation
+	if m.releaseState != nil {
+		workDir := m.releaseState.WorkDir
+		exec := NewGitExecutor(workDir, nil)
+		exec.RunCommand("git checkout root")
+		exec.Close()
 	}
 
 	ClearReleaseState()
