@@ -71,6 +71,7 @@ func (m model) executeCommand(name string) (tea.Model, tea.Cmd) {
 		if config, err := LoadConfig(); err == nil {
 			m.settingsExcludePatterns.SetValue(config.ExcludePatterns)
 		}
+		(&m).updateTextareaTheme()
 		return m, m.settingsExcludePatterns.Focus()
 
 	case "logout":
