@@ -28,10 +28,9 @@ var (
 func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+q":
-		// Close without saving; revert theme preview if on Theme tab
-		if m.settingsTab == 1 {
-			loadThemeFromConfig()
-		}
+		// Close without saving; revert any unsaved theme preview
+		loadThemeFromConfig()
+		(&m).updateTextareaTheme()
 		m.showSettings = false
 		m.settingsExcludePatterns.Blur()
 		m.settingsError = ""
@@ -39,11 +38,8 @@ func (m model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "H":
-		// Switch to previous tab
+		// Switch to previous tab (keep unsaved changes including theme preview)
 		if m.settingsTab > 0 {
-			if m.settingsTab == 1 {
-				loadThemeFromConfig()
-			}
 			m.settingsTab--
 			m.settingsFocusIndex = 0
 			return m, m.settingsExcludePatterns.Focus()
@@ -129,6 +125,7 @@ func (m model) updateSettingsTheme(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsThemeIndex--
 			if m.settingsThemeIndex < len(m.settingsThemes) {
 				applyTheme(m.settingsThemes[m.settingsThemeIndex])
+				(&m).updateTextareaTheme()
 			}
 		}
 		return m, nil
@@ -137,6 +134,7 @@ func (m model) updateSettingsTheme(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.settingsFocusIndex == 0 && m.settingsThemeIndex < len(m.settingsThemes)-1 {
 			m.settingsThemeIndex++
 			applyTheme(m.settingsThemes[m.settingsThemeIndex])
+			(&m).updateTextareaTheme()
 		}
 		return m, nil
 
@@ -181,6 +179,33 @@ func (m *model) loadSettingsThemes() {
 			m.settingsThemeIndex = i
 			break
 		}
+	}
+}
+
+// updateTextareaTheme updates the settings textarea styles to match currentTheme.
+// Must be called from Update path (pointer receiver) so the style pointer rebinds correctly.
+func (m *model) updateTextareaTheme() {
+	m.settingsExcludePatterns.FocusedStyle.CursorLine = lipgloss.NewStyle().Foreground(currentTheme.Foreground)
+	m.settingsExcludePatterns.FocusedStyle.Text = lipgloss.NewStyle().Foreground(currentTheme.Foreground)
+	m.settingsExcludePatterns.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(currentTheme.Accent)
+	m.settingsExcludePatterns.FocusedStyle.LineNumber = lipgloss.NewStyle().Foreground(currentTheme.Notion)
+	m.settingsExcludePatterns.FocusedStyle.CursorLineNumber = lipgloss.NewStyle().Foreground(currentTheme.Notion)
+	m.settingsExcludePatterns.FocusedStyle.EndOfBuffer = lipgloss.NewStyle().Foreground(currentTheme.Notion)
+	m.settingsExcludePatterns.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(currentTheme.Notion)
+	m.settingsExcludePatterns.FocusedStyle.Base = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(currentTheme.Accent)
+	m.settingsExcludePatterns.BlurredStyle.Text = lipgloss.NewStyle().Foreground(currentTheme.Foreground)
+	m.settingsExcludePatterns.BlurredStyle.Prompt = lipgloss.NewStyle().Foreground(currentTheme.Notion)
+	m.settingsExcludePatterns.BlurredStyle.LineNumber = lipgloss.NewStyle().Foreground(currentTheme.Notion)
+	m.settingsExcludePatterns.BlurredStyle.CursorLineNumber = lipgloss.NewStyle().Foreground(currentTheme.Notion)
+	m.settingsExcludePatterns.BlurredStyle.EndOfBuffer = lipgloss.NewStyle().Foreground(currentTheme.Notion)
+	m.settingsExcludePatterns.BlurredStyle.Placeholder = lipgloss.NewStyle().Foreground(currentTheme.Notion)
+	// Re-focus/blur to rebind the internal style pointer to the updated styles
+	if m.settingsExcludePatterns.Focused() {
+		m.settingsExcludePatterns.Focus()
+	} else {
+		m.settingsExcludePatterns.Blur()
 	}
 }
 
@@ -321,9 +346,9 @@ func (m model) overlaySettings(background string) string {
 	// Help footer text
 	var helpText string
 	if m.settingsTab == 1 {
-		helpText = helpStyle.Render("j/k: nav • tab: focus • enter: save • S-h/S-l: switch tab • esc/C+q: close")
+		helpText = helpStyle.Render("j/k: nav • tab: focus • enter: save • H/L: switch tab • esc/C+q: close")
 	} else {
-		helpText = helpStyle.Render("tab: focus • enter: save • S-h/S-l: switch tab • esc/C+q: close")
+		helpText = helpStyle.Render("tab: focus • enter: save • H/L: switch tab • esc/C+q: close")
 	}
 
 	// Calculate inner dimensions (modal minus padding only, border is outside Width)
@@ -362,24 +387,6 @@ func (m model) overlaySettings(background string) string {
 
 // renderReleaseSettings renders the Release tab content
 func (m model) renderReleaseSettings(modalWidth, modalHeight int) string {
-	// Keep textarea styles in sync with current theme (for live preview)
-	m.settingsExcludePatterns.FocusedStyle.CursorLine = lipgloss.NewStyle().Foreground(currentTheme.Foreground)
-	m.settingsExcludePatterns.FocusedStyle.Text = lipgloss.NewStyle().Foreground(currentTheme.Foreground)
-	m.settingsExcludePatterns.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(currentTheme.Accent)
-	m.settingsExcludePatterns.FocusedStyle.LineNumber = lipgloss.NewStyle().Foreground(currentTheme.Notion)
-	m.settingsExcludePatterns.FocusedStyle.CursorLineNumber = lipgloss.NewStyle().Foreground(currentTheme.Notion)
-	m.settingsExcludePatterns.FocusedStyle.EndOfBuffer = lipgloss.NewStyle().Foreground(currentTheme.Notion)
-	m.settingsExcludePatterns.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(currentTheme.Notion)
-	m.settingsExcludePatterns.FocusedStyle.Base = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(currentTheme.Accent)
-	m.settingsExcludePatterns.BlurredStyle.Text = lipgloss.NewStyle().Foreground(currentTheme.Foreground)
-	m.settingsExcludePatterns.BlurredStyle.Prompt = lipgloss.NewStyle().Foreground(currentTheme.Notion)
-	m.settingsExcludePatterns.BlurredStyle.LineNumber = lipgloss.NewStyle().Foreground(currentTheme.Notion)
-	m.settingsExcludePatterns.BlurredStyle.CursorLineNumber = lipgloss.NewStyle().Foreground(currentTheme.Notion)
-	m.settingsExcludePatterns.BlurredStyle.EndOfBuffer = lipgloss.NewStyle().Foreground(currentTheme.Notion)
-	m.settingsExcludePatterns.BlurredStyle.Placeholder = lipgloss.NewStyle().Foreground(currentTheme.Notion)
-
 	var b strings.Builder
 
 	// Setting title

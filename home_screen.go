@@ -58,6 +58,7 @@ func (m model) updateHome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if config, err := LoadConfig(); err == nil {
 			m.settingsExcludePatterns.SetValue(config.ExcludePatterns)
 		}
+		(&m).updateTextareaTheme()
 		return m, m.settingsExcludePatterns.Focus()
 	}
 

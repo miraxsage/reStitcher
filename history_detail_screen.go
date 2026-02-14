@@ -126,11 +126,11 @@ func (m model) updateHistoryDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.historySelected = nil
 		m.historyMRDetailsMap = make(map[int]*MergeRequestDetails)
 		return m, nil
-	case "tab":
+	case "L":
 		m.historyDetailTab = (m.historyDetailTab + 1) % len(historyDetailTabs)
 		(&m).initHistoryDetailScreen()
 		return m, nil
-	case "shift+tab":
+	case "H":
 		m.historyDetailTab = (m.historyDetailTab + len(historyDetailTabs) - 1) % len(historyDetailTabs)
 		(&m).initHistoryDetailScreen()
 		return m, nil
@@ -329,7 +329,7 @@ func (m model) viewHistoryDetail() string {
 		Render(titleWithBorder + "\n\n" + tabs + "\n\n" + content)
 
 	// Help footer with empty line after
-	helpText := "tab: next tab • j/k: nav • d/pgup: scroll • o: open • r: reload • C+q: back"
+	helpText := "H/L: switch tab • j/k: nav • d/u: scroll • o: open • r: reload • C+q: back"
 	help := helpStyle.Width(m.width).Align(lipgloss.Center).Render(helpText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, main, help, "")
@@ -399,19 +399,32 @@ func (m model) viewHistoryMetaTab(height int) string {
 	entry := m.historySelected
 	var sb strings.Builder
 
+	// Extract version number from tag (e.g., "5.0-v33" -> "33")
+	number := ""
+	if parts := strings.Split(entry.Tag, "-v"); len(parts) > 1 {
+		number = parts[len(parts)-1]
+	}
+
+	// Reconstruct full tag: {env}-{tag} (e.g., "test-5.0-v33")
+	fullTag := entry.Tag
+	if entry.Environment != "" && entry.Tag != "" {
+		fullTag = strings.ToLower(entry.Environment) + "-" + entry.Tag
+	}
+
 	rows := []struct {
 		label string
 		value string
 	}{
 		{"Date", entry.DateTime.Format("02.01.2006 15:04")},
-		{"Version", entry.Version},
 		{"Environment", entry.Environment},
-		{"Tag", entry.Tag},
+		{"Version", entry.Version},
+		{"Number", number},
+		{"Tag", fullTag},
 		{"Status", entry.Status},
 		{"Root merge", fmt.Sprintf("%v", entry.RootMerge)},
 		{"Release branch", entry.SourceBranch},
 		{"Env branch", entry.EnvBranch},
-		{"MR count", fmt.Sprintf("%d", entry.MRCount)},
+		{"MRs count", fmt.Sprintf("%d", entry.MRCount)},
 	}
 
 	if entry.CreatedMRURL != "" {

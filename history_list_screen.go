@@ -44,7 +44,11 @@ func (d historyDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	tag := truncateWithEllipsis(entry.Tag, tagW)
 	env := entry.Environment
 	dateStr := entry.DateTime.Format("02.01.2006 15:04")
-	mrs := fmt.Sprintf("%d mrs", entry.MRCount)
+	mrsLabel := "MRs"
+	if entry.MRCount == 1 {
+		mrsLabel = "MR"
+	}
+	mrs := fmt.Sprintf("%d %s", entry.MRCount, mrsLabel)
 
 	// Pad columns
 	tag = padColumn(tag, tagW)
