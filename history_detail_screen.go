@@ -527,7 +527,7 @@ func (m model) renderHistoryMRMarkdown() string {
 	style.Strong.Color = stringPtr(string(currentTheme.Warning))
 	style.H1.Prefix = " "
 	style.H1.BackgroundColor = stringPtr(string(currentTheme.Accent))
-	style.H1.Color = stringPtr("231")
+	style.H1.Color = stringPtr(string(currentTheme.AccentForeground))
 	style.H2.Prefix = ""
 	style.H3.Prefix = ""
 	style.H3.Color = stringPtr(string(currentTheme.Accent))

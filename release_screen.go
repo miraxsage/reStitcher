@@ -1651,7 +1651,7 @@ func (m model) renderRootPushHint() string {
 	// Styles for the hint text
 	branchStyle := lipgloss.NewStyle().Foreground(currentTheme.Warning)
 	tagStyle := lipgloss.NewStyle().Foreground(currentTheme.Accent)
-	textStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+	textStyle := lipgloss.NewStyle().Foreground(currentTheme.Foreground)
 
 	// Get tag name (already calculated and stored in state)
 	tagName := state.TagName

@@ -141,7 +141,7 @@ type model struct {
 func NewModel() model {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("231"))
+	s.Style = lipgloss.NewStyle().Foreground(currentTheme.Foreground)
 
 	// Initialize settings textarea
 	ta := textarea.New()
@@ -167,7 +167,7 @@ func NewModel() model {
 	ta.BlurredStyle.Placeholder = lipgloss.NewStyle().Foreground(currentTheme.Notion)
 	ta.BlurredStyle.Base = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240"))
+		BorderForeground(currentTheme.Notion)
 
 	return model{
 		screen:                  screenLoading,
