@@ -13,9 +13,15 @@ type ThemeConfig struct {
 	AccentForeground string `json:"accent_foreground,omitempty"`
 	Foreground       string `json:"foreground"`
 	Notion           string `json:"notion"`
+	NotionForeground string `json:"notion_foreground,omitempty"`
 	Success          string `json:"success"`
+	SuccessForeground string `json:"success_foreground,omitempty"`
 	Warning          string `json:"warning"`
+	WarningForeground string `json:"warning_foreground,omitempty"`
 	Error            string `json:"error"`
+	ErrorForeground  string `json:"error_foreground,omitempty"`
+	Muted            string `json:"muted,omitempty"`            // Subtle background for inactive elements
+	MutedForeground  string `json:"muted_foreground,omitempty"` // Text color on muted background
 	// Optional environment color overrides
 	EnvDevelop string `json:"env_develop,omitempty"`
 	EnvTest    string `json:"env_test,omitempty"`
@@ -29,9 +35,15 @@ type ThemeColors struct {
 	AccentForeground lipgloss.Color // Text color on accent background
 	Foreground       lipgloss.Color
 	Notion           lipgloss.Color
+	NotionForeground lipgloss.Color // Text color on notion background
 	Success          lipgloss.Color
+	SuccessForeground lipgloss.Color // Text color on success background
 	Warning          lipgloss.Color
+	WarningForeground lipgloss.Color // Text color on warning background
 	Error            lipgloss.Color
+	ErrorForeground  lipgloss.Color // Text color on error background
+	Muted            lipgloss.Color // Subtle background for inactive elements (buttons, code blocks, borders)
+	MutedForeground  lipgloss.Color // Text color on muted background
 	// Environment colors
 	EnvDevelop lipgloss.Color
 	EnvTest    lipgloss.Color
@@ -41,17 +53,23 @@ type ThemeColors struct {
 
 // Default indigo theme colors (hardcoded fallback)
 var defaultThemeColors = ThemeColors{
-	Accent:           lipgloss.Color("#5F5FDF"),
-	AccentForeground: lipgloss.Color("231"),
-	Foreground:       lipgloss.Color("#D7D7FF"),
-	Notion:           lipgloss.Color("#5F5F8A"),
-	Success:          lipgloss.Color("#00D588"),
-	Warning:          lipgloss.Color("#FFD600"),
-	Error:            lipgloss.Color("#FF84A8"),
-	EnvDevelop:       lipgloss.Color("#5F5FDF"),
-	EnvTest:          lipgloss.Color("#FFD600"),
-	EnvStage:         lipgloss.Color("#00D588"),
-	EnvProd:          lipgloss.Color("#FF84A8"),
+	Accent:            lipgloss.Color("#5F5FDF"),
+	AccentForeground:  lipgloss.Color("231"),
+	Foreground:        lipgloss.Color("#D7D7FF"),
+	Notion:            lipgloss.Color("#5F5F8A"),
+	NotionForeground:  lipgloss.Color("#D7D7FF"),
+	Success:           lipgloss.Color("#00D588"),
+	SuccessForeground: lipgloss.Color("#D7D7FF"),
+	Warning:           lipgloss.Color("#FFD600"),
+	WarningForeground: lipgloss.Color("#D7D7FF"),
+	Error:             lipgloss.Color("#FF84A8"),
+	ErrorForeground:   lipgloss.Color("#D7D7FF"),
+	Muted:             lipgloss.Color("#333348"),
+	MutedForeground:   lipgloss.Color("#8A8A8A"),
+	EnvDevelop:        lipgloss.Color("#5F5FDF"),
+	EnvTest:           lipgloss.Color("#FFD600"),
+	EnvStage:          lipgloss.Color("#00D588"),
+	EnvProd:           lipgloss.Color("#FF84A8"),
 }
 
 // currentTheme holds the active theme colors
@@ -78,16 +96,36 @@ func resolveColor(value string, fallback lipgloss.Color) lipgloss.Color {
 	return lipgloss.Color(value)
 }
 
+// resolveForegroundColor resolves a <color>_foreground with a three-level fallback:
+// 1. The specific foreground value from the theme (e.g. accent_foreground)
+// 2. The general foreground from the theme (if explicitly set)
+// 3. The specific foreground from the default theme (e.g. defaultThemeColors.AccentForeground)
+func resolveForegroundColor(value string, themeFg string, defaultColor lipgloss.Color) lipgloss.Color {
+	if value != "" && isValidHexColor(value) {
+		return lipgloss.Color(value)
+	}
+	if themeFg != "" && isValidHexColor(themeFg) {
+		return lipgloss.Color(themeFg)
+	}
+	return defaultColor
+}
+
 // themeFromConfig converts a ThemeConfig to ThemeColors with fallbacks
 func themeFromConfig(tc ThemeConfig) ThemeColors {
 	colors := ThemeColors{
-		Accent:           resolveColor(tc.Accent, defaultThemeColors.Accent),
-		AccentForeground: resolveColor(tc.AccentForeground, defaultThemeColors.AccentForeground),
-		Foreground:       resolveColor(tc.Foreground, defaultThemeColors.Foreground),
-		Notion:           resolveColor(tc.Notion, defaultThemeColors.Notion),
-		Success:          resolveColor(tc.Success, defaultThemeColors.Success),
-		Warning:          resolveColor(tc.Warning, defaultThemeColors.Warning),
-		Error:            resolveColor(tc.Error, defaultThemeColors.Error),
+		Accent:            resolveColor(tc.Accent, defaultThemeColors.Accent),
+		AccentForeground:  resolveForegroundColor(tc.AccentForeground, tc.Foreground, defaultThemeColors.AccentForeground),
+		Foreground:        resolveColor(tc.Foreground, defaultThemeColors.Foreground),
+		Notion:            resolveColor(tc.Notion, defaultThemeColors.Notion),
+		NotionForeground:  resolveForegroundColor(tc.NotionForeground, tc.Foreground, defaultThemeColors.NotionForeground),
+		Success:           resolveColor(tc.Success, defaultThemeColors.Success),
+		SuccessForeground: resolveForegroundColor(tc.SuccessForeground, tc.Foreground, defaultThemeColors.SuccessForeground),
+		Warning:           resolveColor(tc.Warning, defaultThemeColors.Warning),
+		WarningForeground: resolveForegroundColor(tc.WarningForeground, tc.Foreground, defaultThemeColors.WarningForeground),
+		Error:             resolveColor(tc.Error, defaultThemeColors.Error),
+		ErrorForeground:   resolveForegroundColor(tc.ErrorForeground, tc.Foreground, defaultThemeColors.ErrorForeground),
+		Muted:             resolveColor(tc.Muted, defaultThemeColors.Muted),
+		MutedForeground:   resolveForegroundColor(tc.MutedForeground, tc.Foreground, defaultThemeColors.MutedForeground),
 	}
 	// Environment colors default to base theme colors if not specified
 	colors.EnvDevelop = resolveColor(tc.EnvDevelop, colors.Accent)
@@ -188,7 +226,7 @@ func rebuildStyles() {
 		MarginBottom(1)
 
 	inputLabelStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("7"))
+		Foreground(t.Notion)
 
 	errorBoxStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -242,8 +280,8 @@ func rebuildStyles() {
 		Foreground(t.Error)
 
 	buttonStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("245")).
-		Background(lipgloss.Color("238")).
+		Foreground(t.MutedForeground).
+		Background(t.Muted).
 		Padding(0, 2)
 
 	buttonActiveStyle = lipgloss.NewStyle().
@@ -253,7 +291,7 @@ func rebuildStyles() {
 		Padding(0, 2)
 
 	buttonDangerStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("231")).
+		Foreground(t.ErrorForeground).
 		Background(t.Error).
 		Bold(true).
 		Padding(0, 2)
@@ -302,7 +340,7 @@ func rebuildStyles() {
 
 	envTitleStepStyle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("236")).
+		Foreground(t.WarningForeground).
 		Background(t.Warning)
 
 	envTitleStyle = lipgloss.NewStyle().
@@ -331,27 +369,27 @@ func rebuildStyles() {
 	// --- release_screen.go ---
 
 	releasePercentStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("7"))
+		Foreground(t.Foreground)
 
 	releaseSuspendedStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("236")).
+		Foreground(t.WarningForeground).
 		Background(t.Warning).
 		PaddingLeft(1).
 		PaddingRight(1)
 
 	releaseSuccessGreenStyle = lipgloss.NewStyle().
 		Background(t.Success).
-		Foreground(lipgloss.Color("231"))
+		Foreground(t.SuccessForeground)
 
 	releaseConflictStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("231")).
+		Foreground(t.ErrorForeground).
 		Background(t.Error).
 		PaddingLeft(1).
 		PaddingRight(1).
 		Bold(true)
 
 	releaseErrorStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("231")).
+		Foreground(t.ErrorForeground).
 		Background(t.Error).
 		PaddingLeft(1).
 		PaddingRight(1).
@@ -365,14 +403,14 @@ func rebuildStyles() {
 
 	releaseTerminalStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240"))
+		BorderForeground(t.Notion)
 
 	releaseTextActiveStyle = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(t.Accent)
 
 	releaseHorizontalLineStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240"))
+		Foreground(t.Notion)
 
 	// --- git_executor.go ---
 
@@ -382,7 +420,7 @@ func rebuildStyles() {
 	// --- project_selector.go ---
 
 	projectItemStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252"))
+		Foreground(t.Foreground)
 
 	projectItemSelectedStyle = lipgloss.NewStyle().
 		Bold(true).
@@ -402,7 +440,7 @@ func rebuildStyles() {
 		Foreground(t.Notion)
 
 	projectFilterTextStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("231"))
+		Foreground(t.Foreground)
 
 	projectSelectorStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

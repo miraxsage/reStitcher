@@ -10,7 +10,7 @@ import (
 
 // viewLoading renders the initial loading screen
 func (m model) viewLoading() string {
-	loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("231"))
+	loadingStyle := lipgloss.NewStyle().Foreground(currentTheme.Foreground)
 	content := loadingStyle.Render(m.spinner.View() + " Loading...")
 
 	// Center vertically and horizontally
@@ -203,7 +203,7 @@ func (m model) viewAuth() string {
 		loadingLine := lipgloss.NewStyle().
 			Width(innerWidth).
 			Align(lipgloss.Center).
-			Foreground(lipgloss.Color("231")).
+			Foreground(currentTheme.Foreground).
 			Render(loadingText)
 
 		// Build content with title and vertical centering for loading

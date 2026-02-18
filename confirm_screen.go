@@ -323,7 +323,7 @@ func (m model) renderConfirmPreparing(width int, height int) string {
 		envColor = getEnvBranchColor(m.selectedEnv.Name)
 	}
 	envStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(envColor))
-	highlightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(currentTheme.Accent)
+	highlightStyle := lipgloss.NewStyle().Foreground(currentTheme.AccentForeground).Background(currentTheme.Accent)
 
 	var sb strings.Builder
 	sb.WriteString(textStyle.Render("We are almost ready to release ") + envStyle.Render(version) + textStyle.Render(" of selected MRs to ") + envStyle.Render(envName) + textStyle.Render(" environment,"))
@@ -441,13 +441,13 @@ If you agree, press enter and release it.
 	}
 	style.Document.StylePrimitive.Color = stringPtr(string(currentTheme.Foreground))
 	style.Strong.Color = stringPtr(envColor)
-	style.Code.BackgroundColor = stringPtr("237")
-	style.Code.Color = stringPtr("252")
+	style.Code.BackgroundColor = stringPtr(string(currentTheme.Muted))
+	style.Code.Color = stringPtr(string(currentTheme.MutedForeground))
 	style.Emph.Color = stringPtr(string(currentTheme.Error))
 	style.Emph.Italic = boolPtr(false)
 	style.Strikethrough.Color = stringPtr(string(currentTheme.Error))
 	style.Strikethrough.CrossedOut = boolPtr(false)
-	style.LinkText.Color = stringPtr("255")
+	style.LinkText.Color = stringPtr(string(currentTheme.AccentForeground))
 	style.LinkText.BackgroundColor = stringPtr(string(currentTheme.Accent))
 	style.LinkText.Bold = boolPtr(true)
 	style.H1.Prefix = ""

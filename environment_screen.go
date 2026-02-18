@@ -54,15 +54,15 @@ func getEnvBranchColor(envName string) string {
 func getEnvHintStyle(envName string) lipgloss.Style {
 	switch envName {
 	case "DEVELOP":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(currentTheme.EnvDevelop)
+		return lipgloss.NewStyle().Foreground(currentTheme.AccentForeground).Background(currentTheme.EnvDevelop)
 	case "TEST":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("236")).Background(currentTheme.EnvTest)
+		return lipgloss.NewStyle().Foreground(currentTheme.WarningForeground).Background(currentTheme.EnvTest)
 	case "STAGE":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(currentTheme.EnvStage)
+		return lipgloss.NewStyle().Foreground(currentTheme.SuccessForeground).Background(currentTheme.EnvStage)
 	case "PROD":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(currentTheme.EnvProd)
+		return lipgloss.NewStyle().Foreground(currentTheme.ErrorForeground).Background(currentTheme.EnvProd)
 	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("231"))
+		return lipgloss.NewStyle().Foreground(currentTheme.Foreground)
 	}
 }
 
