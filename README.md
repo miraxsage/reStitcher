@@ -2,30 +2,30 @@
 
 > Automate complex release workflows from your terminal.
 
-Relix is an interactive TUI tool that streamlines GitLab release management -- select MRs, target an environment, set a version, and let it handle the git operations, MR creation, and pipeline monitoring.
+Relix is an interactive TUI tool that streamlines GitLab release management -- select Merge Requests, target an environment, set a version, and let it handle the git operations, MR creation, and pipeline monitoring.
 
 ## Key Features
 
 - **Interactive MR Selection** -- browse, filter, and select multiple Merge Requests with diff stats and conflict detection
 - **Environment Targeting** -- release to DEVELOP, TEST, STAGE, or PROD with configurable branch mappings
 - **Automated Git Operations** -- merges, checkouts, commits, pushes, and MR creation in one flow
+- **Flexible Merge Strategies** -- squash merge (safe, conflict-free) or regular merge with full commit history
 - **Crash Recovery** -- resume interrupted releases exactly where you left off
 - **Pipeline Monitoring** -- real-time pipeline status with macOS notifications
 - **Secure Credentials** -- stored in your system's keyring, never in plain text
 - **Custom Themes** -- full color customization with dynamic ANSI remapping
 
-<img width="800" height="auto" alt="1" src="https://github.com/user-attachments/assets/f7c17425-76ea-40e6-8be8-068e40caf09b" />
-<img width="800" height="auto" alt="2" src="https://github.com/user-attachments/assets/21a1c709-6765-420a-96f8-6ad62f07f344" />
-<img width="800" height="auto" alt="3" src="https://github.com/user-attachments/assets/7fc9b98f-a943-4f01-b7da-cb5c276e422f" />
-<img width="800" height="auto" alt="4" src="https://github.com/user-attachments/assets/662dd777-0de7-4bae-b692-ba3573a1c53d" />
-<img width="800" height="auto" alt="5" src="https://github.com/user-attachments/assets/b7ee6141-629d-46f6-9333-d4917c344ae9" />
-<img width="800" height="auto" alt="6" src="https://github.com/user-attachments/assets/0f922e06-76e7-45cf-8ca5-71c55a75fc25" />
+<img width="800" height="auto" alt="MR selection with detail pane" src="docs/screens/mr-selection.png" />
+
+<img width="800" height="auto" alt="Release confirmation screen" src="docs/screens/confirm.png" />
+
+<img width="800" height="auto" alt="Release execution in progress" src="docs/screens/release-progress.png" />
 
 ## Quick Start
 
 ```bash
 # Build from source
-git clone https://github.com/yourusername/relix.git
+git clone https://github.com/miraxsage/relix.git
 cd relix
 go build -o relix .
 
@@ -49,12 +49,14 @@ On first run, enter your GitLab URL, email, and token. Then select a project and
 
 ## Documentation
 
-| Guide | Description |
-|-------|-------------|
-| [Getting Started](docs/getting-started.md) | Installation, authentication, first run |
-| [Usage Guide](docs/usage.md) | Full release workflow, shortcuts, history |
-| [Configuration](docs/configuration.md) | Environments, themes, exclusions, storage |
-| [Architecture](docs/architecture.md) | Project structure, state machine, key patterns |
+> 🇬🇧 **English** | 🇷🇺 **Русский**
+
+| English | Русский | Description |
+|---------|---------|-------------|
+| [Getting Started](docs/en/getting-started.md) | [Начало работы](docs/ru/getting-started.md) | Installation, authentication, first run |
+| [Usage Guide](docs/en/usage.md) | [Руководство](docs/ru/usage.md) | Full release workflow, shortcuts, history |
+| [Configuration](docs/en/configuration.md) | [Конфигурация](docs/ru/configuration.md) | Environments, themes, exclusions, storage |
+| [Architecture](docs/en/architecture.md) | [Архитектура](docs/ru/architecture.md) | Project structure, state machine, key patterns |
 
 ## Tech Stack
 
