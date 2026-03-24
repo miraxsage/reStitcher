@@ -360,12 +360,10 @@ func (m model) renderConfirmMarkdown(width int) string {
 	if m.rootMergeSelection {
 		step8And9 = fmt.Sprintf(`%d. Open new environment MR in browser for manual approval and pipeline execution
 
-%d. ~~Confirm~~ and push **%s** to remote
-
-%d. [ Merge ]()**%s** to **root**, tag **root** as **%s** and push it to remote
+%d. ~~Confirm~~ and [ merge ]()**%s** to **root**, tag **root** as **%s** and push it to remote
 
 %d. [ Merge ]()**root** to **develop** and push it to remote`,
-			mrStepNum+1, mrStepNum+2, sourceBranch, mrStepNum+3, sourceBranch, tagName, mrStepNum+4)
+			mrStepNum+1, mrStepNum+2, sourceBranch, tagName, mrStepNum+3)
 	} else {
 		step8And9 = fmt.Sprintf(`%d. Open new environment MR in browser for manual approval and pipeline execution
 

@@ -84,9 +84,9 @@ func calculateReleaseTotalSteps(state *ReleaseState) int {
 	total += 1 // Push env branch
 	total += 1 // Create MR (API)
 	if state.RootMerge {
-		total += 5 // push release-root, merge to root, tag, push root+tags, merge develop+push
+		total += 5 // push release-root, merge to root, tag merge-commit, push root+tags, merge develop+push
 	} else {
-		total += 2 // tag, push with tags
+		total += 3 // checkout release-root, tag, push with tags
 	}
 	total += 1 // SwitchToRoot
 	return total
@@ -1129,12 +1129,17 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 			}
 
 			title, body := BuildCommitMessage(state.Version, state.Environment.BranchName, vNumber, state.MRBranches)
-			// Use $'...' bash syntax to properly interpret \n as newlines in commit body
-			// Escape single quotes and convert actual newlines to \n escape sequences
-			escapedBody := strings.ReplaceAll(body, "'", "'\\''")
-			escapedBody = strings.ReplaceAll(escapedBody, "\n", "\\n")
 			// Don't use "git add -A" - files are already staged from checkout
-			commitCmd := fmt.Sprintf("git commit -m %q -m $'%s'", title, escapedBody)
+			var commitCmd string
+			if body != "" {
+				// Use $'...' bash syntax to properly interpret \n as newlines in commit body
+				// Escape single quotes and convert actual newlines to \n escape sequences
+				escapedBody := strings.ReplaceAll(body, "'", "'\\''")
+				escapedBody = strings.ReplaceAll(escapedBody, "\n", "\\n")
+				commitCmd = fmt.Sprintf("git commit -m %q -m $'%s'", title, escapedBody)
+			} else {
+				commitCmd = fmt.Sprintf("git commit -m %q", title)
+			}
 			output, err = executor.RunCommand(commitCmd)
 
 			// After successful commit, clean up any remaining untracked files
@@ -1150,13 +1155,12 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 			// MR will be created via API after this step completes
 
 		case ReleaseStepPushRootBranches:
-			// Step 9: Tag and push branches
 			tagName := state.TagName
 
 			if state.RootMerge {
-				// RootMerge enabled: push release root, merge to root, tag root, push root, merge to develop, push
+				// RootMerge: push release-root, merge to root, tag merge-commit on root, push root+tags, merge to develop
 
-				// Push release root branch first
+				// Push release root branch
 				pushReleaseRootCmd := fmt.Sprintf("git push -u origin %s", state.SourceBranch)
 				output1, err1 := executor.RunCommand(pushReleaseRootCmd)
 				if err1 != nil {
@@ -1165,7 +1169,7 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 				output = output1
 				m.program.Send(releaseSubStepDoneMsg{})
 
-				// Merge source branch to root
+				// Merge release root to base branch (creates merge-commit)
 				output2, err2 := executor.RunCommands(cmds.StepMergeToRoot())
 				if err2 != nil {
 					return releaseStepCompleteMsg{step: step, err: err2, output: output + output2}
@@ -1173,51 +1177,60 @@ func (m *model) executeReleaseStep(step ReleaseStep) tea.Cmd {
 				output += output2
 				m.program.Send(releaseSubStepDoneMsg{})
 
-				// Create tag on root (after merge)
-				tagCmd := fmt.Sprintf("git tag %s", tagName)
-				output3, err3 := executor.RunCommand(tagCmd)
+				// Tag the merge-commit on root (we are on root after StepMergeToRoot)
+				tagCmd := fmt.Sprintf("git tag -f %s", tagName)
+				outputTag, errTag := executor.RunCommand(tagCmd)
+				if errTag != nil {
+					return releaseStepCompleteMsg{step: step, err: errTag, output: output + outputTag}
+				}
+				output += outputTag
+				m.program.Send(releaseSubStepDoneMsg{})
+
+				// Push base branch with tags
+				pushRootCmd := fmt.Sprintf("git push origin %s --tags --force", baseBranch)
+				output3, err3 := executor.RunCommand(pushRootCmd)
 				if err3 != nil {
 					return releaseStepCompleteMsg{step: step, err: err3, output: output + output3}
 				}
 				output += output3
 				m.program.Send(releaseSubStepDoneMsg{})
 
-				// Push base branch with tags
-				pushRootCmd := fmt.Sprintf("git push origin %s --tags", baseBranch)
-				output4, err4 := executor.RunCommand(pushRootCmd)
+				// Merge root to develop and push
+				output4, err4 := executor.RunCommands(cmds.StepMergeToDevelop())
 				if err4 != nil {
 					return releaseStepCompleteMsg{step: step, err: err4, output: output + output4}
 				}
 				output += output4
 				m.program.Send(releaseSubStepDoneMsg{})
-
-				// Merge root to develop and push
-				output5, err5 := executor.RunCommands(cmds.StepMergeToDevelop())
-				if err5 != nil {
-					return releaseStepCompleteMsg{step: step, err: err5, output: output + output5}
-				}
-				output += output5
-				m.program.Send(releaseSubStepDoneMsg{})
 			} else {
-				// No RootMerge: tag source branch, push with tags
+				// No RootMerge: checkout release-root, tag it, push with tags
 
-				// Create tag on source branch
-				tagCmd := fmt.Sprintf("git tag %s", tagName)
-				output1, err1 := executor.RunCommand(tagCmd)
-				if err1 != nil {
-					return releaseStepCompleteMsg{step: step, err: err1, output: output1}
+				// Checkout release root branch
+				checkoutCmd := fmt.Sprintf("git checkout %s", state.SourceBranch)
+				outputChk, errChk := executor.RunCommand(checkoutCmd)
+				if errChk != nil {
+					return releaseStepCompleteMsg{step: step, err: errChk, output: outputChk}
 				}
+				output = outputChk
 				m.program.Send(releaseSubStepDoneMsg{})
 
-				// Push source branch with tags
-				pushCmd := fmt.Sprintf("git push origin %s --tags", state.SourceBranch)
-				output2, err2 := executor.RunCommand(pushCmd)
-				if err2 != nil {
-					return releaseStepCompleteMsg{step: step, err: err2, output: output1 + output2}
+				// Create tag on release root branch
+				tagCmd := fmt.Sprintf("git tag -f %s", tagName)
+				outputTag, errTag := executor.RunCommand(tagCmd)
+				if errTag != nil {
+					return releaseStepCompleteMsg{step: step, err: errTag, output: output + outputTag}
 				}
+				output += outputTag
 				m.program.Send(releaseSubStepDoneMsg{})
 
-				output = output1 + output2
+				// Push release root branch with tags
+				pushCmd := fmt.Sprintf("git push -u origin %s --tags --force", state.SourceBranch)
+				outputPush, errPush := executor.RunCommand(pushCmd)
+				if errPush != nil {
+					return releaseStepCompleteMsg{step: step, err: errPush, output: output + outputPush}
+				}
+				output += outputPush
+				m.program.Send(releaseSubStepDoneMsg{})
 			}
 
 		case ReleaseStepSwitchToRoot:
@@ -1337,9 +1350,13 @@ func (m *model) handleReleaseStepComplete(msg releaseStepCompleteMsg) (tea.Model
 
 	case ReleaseStepCheckoutRoot:
 		state.CompletedSubSteps++
-		nextStep = ReleaseStepMergeBranches
-		state.CurrentStep = nextStep
 		state.CurrentMRIndex = 0
+		if len(state.MRBranches) > 0 {
+			nextStep = ReleaseStepMergeBranches
+		} else {
+			nextStep = ReleaseStepCheckoutEnv
+		}
+		state.CurrentStep = nextStep
 
 	case ReleaseStepMergeBranches:
 		state.CompletedSubSteps++
@@ -1741,8 +1758,8 @@ func (m model) renderRootPushHint() string {
 	}
 
 	if state.RootMerge {
-		// With RootMerge: {branch} will be merged to base, tagged as {tag}, then base to develop
-		return fmt.Sprintf("%s %s %s%s %s %s %s%s %s%s",
+		// With RootMerge: {branch} merged to base, base tagged as {tag}, then base merged to develop
+		return fmt.Sprintf("%s %s %s%s %s %s %s%s %s %s",
 			branchStyle.Render(state.SourceBranch),
 			textStyle.Render("will be merged to"),
 			branchStyle.Render(hintBaseBranch),
@@ -1750,9 +1767,9 @@ func (m model) renderRootPushHint() string {
 			branchStyle.Render(hintBaseBranch),
 			textStyle.Render("tagged as"),
 			tagStyle.Render(tagName),
-			textStyle.Render(" and merged to"),
+			textStyle.Render(","),
+			textStyle.Render("then merged to"),
 			branchStyle.Render("develop"),
-			textStyle.Render(",\nfinally all pushed to remote"),
 		)
 	}
 
@@ -1788,6 +1805,7 @@ func (m model) completeRelease() (tea.Model, tea.Cmd) {
 	// Stop pipeline observer
 	m.stopPipelineObserver()
 	m.pipelineStatus = nil
+	m.pipelineFailNotified = false
 
 	// No need to checkout root here - it's already done as part of ReleaseStepSwitchToRoot
 
@@ -1796,14 +1814,39 @@ func (m model) completeRelease() (tea.Model, tea.Cmd) {
 	m.releaseOutputBuffer = nil
 	m.releaseCurrentScreen = ""
 	m.releaseRunning = false
+	m.releaseNeedEmptyLineAfterCommand = false
+	m.releaseButtonIndex = 0
+	m.releaseButtons = nil
 
-	// Reset selections for next release
-	m.selectedMRs = make(map[int]bool)
+	// Reset MR list - rebuild list with fresh delegate to keep selectedMRs map in sync
+	(&m).initListScreen()
+	(&m).updateListSize()
+
+	// Reset environment selection
 	m.selectedEnv = nil
 	m.envSelectIndex = 0
+
+	// Reset version input
 	m.versionInput.SetValue("")
 	m.versionError = ""
-	m.mrsLoaded = false
+
+	// Reset source branch state
+	m.sourceBranchInput.SetValue("")
+	m.sourceBranchError = ""
+	m.sourceBranchVersion = ""
+	m.sourceBranchRemoteStatus = ""
+	m.sourceBranchCheckedName = ""
+	m.sourceBranchLastCheckTime = time.Time{}
+
+	// Reset env merge options to defaults
+	m.envMergeOptionIndex = 0
+	m.envMergeSelection = 0
+	m.envMergeCommitCount = 0
+	m.envMergeCountLoading = false
+
+	// Reset root merge options to defaults
+	m.rootMergeButtonIndex = 0
+	m.rootMergeSelection = true
 
 	// Go back to home screen
 	m.screen = screenHome
